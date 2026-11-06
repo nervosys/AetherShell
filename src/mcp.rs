@@ -148,6 +148,12 @@ fn curl_argv(args: &HashMap<String, JsonValue>) -> Result<Vec<String>> {
         Some(value) => text("url", value)?,
         None => return Err(curl_refusal("url", "is required")),
     };
+    // Only HTTP(S): curl also reads file://, dict://, gopher:// and others, and
+    // a file:// URL would return a local file as the tool's output.
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err(curl_refusal("url", "must be an http:// or https:// URL"));
+    }
     argv.push("--".to_string());
     argv.push(url);
     Ok(argv)
@@ -1957,6 +1963,21 @@ mod tests {
                 "https://api.example.com/data",
             ])
         );
+    }
+
+    #[test]
+    fn curl_refuses_a_url_that_is_not_http() {
+        for url in [
+            "file:///etc/passwd",
+            "FILE:///c:/windows/win.ini",
+            "gopher://127.0.0.1:6379/_x",
+            "dict://127.0.0.1:11211/stat",
+            "example.com",
+        ] {
+            let args = args_of(&[("url", json!(url))]);
+            assert!(curl_argv(&args).is_err(), "{url} must not reach curl");
+        }
+        assert!(curl_argv(&args_of(&[("url", json!("HTTPS://example.com"))])).is_ok());
     }
 
     #[test]
