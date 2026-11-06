@@ -85,6 +85,82 @@ fn validate_tool_args(tool: &OSTool, args: &HashMap<String, JsonValue>) -> Resul
     Ok(())
 }
 
+/// The argv of a call to the `curl` OS tool, built from its declared parameters
+/// alone: `method` becomes `-X <method>`, each `headers` item `-H <item>`, `data`
+/// `--data-raw <data>`, and `url` follows `--`, so no value is read as an option.
+/// The values used to be passed as bare arguments, so curl took `GET` for a URL.
+///
+/// `--data-raw` rather than `--data`, because `--data` reads a file for a value
+/// beginning with `@`. A header beginning with `@` names a file of headers, so it
+/// is refused. `output` is refused too: curl would write the response to that
+/// path, which the argument checks never judge against the workspace, and the
+/// response is returned as the tool's output anyway.
+///
+/// Pure, so the mapping can be tested without a network.
+fn curl_argv(args: &HashMap<String, JsonValue>) -> Result<Vec<String>> {
+    if args.contains_key("output") {
+        return Err(curl_refusal(
+            "output",
+            "is not supported: the response is returned as the tool's output",
+        ));
+    }
+    // A string the tool would read as an option is refused, and so is any other type.
+    let text = |name: &str, value: &JsonValue| -> Result<String> {
+        match value {
+            JsonValue::String(s) if s.starts_with('-') => Err(curl_refusal(
+                name,
+                "begins with '-', which curl would read as an option",
+            )),
+            JsonValue::String(s) => Ok(s.clone()),
+            _ => Err(curl_refusal(name, "must be a string")),
+        }
+    };
+    let mut argv = Vec::new();
+    if let Some(method) = args.get("method") {
+        argv.push("-X".to_string());
+        argv.push(text("method", method)?);
+    }
+    let headers: Vec<&JsonValue> = match args.get("headers") {
+        None => Vec::new(),
+        Some(JsonValue::Array(items)) => items.iter().collect(),
+        Some(single) => vec![single],
+    };
+    for header in headers {
+        let line = text("headers", header)?;
+        if line.starts_with('@') {
+            return Err(curl_refusal(
+                "headers",
+                "begins with '@', which curl reads as a file of headers",
+            ));
+        }
+        argv.push("-H".to_string());
+        argv.push(line);
+    }
+    if let Some(data) = args.get("data") {
+        let body = match data {
+            JsonValue::Number(n) => text("data", &JsonValue::String(n.to_string()))?,
+            other => text("data", other)?,
+        };
+        argv.push("--data-raw".to_string());
+        argv.push(body);
+    }
+    let url = match args.get("url") {
+        Some(value) => text("url", value)?,
+        None => return Err(curl_refusal("url", "is required")),
+    };
+    argv.push("--".to_string());
+    argv.push(url);
+    Ok(argv)
+}
+
+fn curl_refusal(param: &str, why: &str) -> anyhow::Error {
+    mcp_coded(
+        crate::safety::ErrorCode::BadArg,
+        format!("curl: '{param}' {why}"),
+        "pass a value of the declared type that does not begin with '-' (or '@' for headers)",
+    )
+}
+
 const MCP_REMOTE_UNREACHABLE: &str =
     "the remote MCP server could not be reached; check the endpoint URL and that the server is running";
 const MCP_REMOTE_STATUS: &str =
@@ -768,35 +844,43 @@ impl McpServer {
         // Build command
         let mut cmd = crate::safety::child_command(&cmd_name);
 
-        // Add arguments based on tool parameters. Values were validated above:
-        // strings are never option-like and enum parameters hold a declared value.
-        for param in &tool.parameters {
-            if let Some(value) = args.get(&param.name) {
-                match value {
-                    JsonValue::String(s) => {
-                        cmd.arg(s);
-                    }
-                    JsonValue::Bool(true) => {
-                        // Add flag for boolean true
-                        if let Some(ref default) = param.default_value {
-                            if default == "false" {
-                                // This is a flag that should be added
-                                let flag = format!("-{}", param.name.chars().next().unwrap_or('?'));
-                                cmd.arg(flag);
+        if tool.name == "curl" {
+            // curl's declared parameters map to its own flags; see `curl_argv`.
+            for arg in curl_argv(args)? {
+                cmd.arg(arg);
+            }
+        } else {
+            // Add arguments based on tool parameters. Values were validated above:
+            // strings are never option-like and enum parameters hold a declared value.
+            for param in &tool.parameters {
+                if let Some(value) = args.get(&param.name) {
+                    match value {
+                        JsonValue::String(s) => {
+                            cmd.arg(s);
+                        }
+                        JsonValue::Bool(true) => {
+                            // Add flag for boolean true
+                            if let Some(ref default) = param.default_value {
+                                if default == "false" {
+                                    // This is a flag that should be added
+                                    let flag =
+                                        format!("-{}", param.name.chars().next().unwrap_or('?'));
+                                    cmd.arg(flag);
+                                }
                             }
                         }
-                    }
-                    JsonValue::Number(n) => {
-                        cmd.arg(n.to_string());
-                    }
-                    JsonValue::Array(arr) => {
-                        for item in arr {
-                            if let JsonValue::String(s) = item {
-                                cmd.arg(s);
+                        JsonValue::Number(n) => {
+                            cmd.arg(n.to_string());
+                        }
+                        JsonValue::Array(arr) => {
+                            for item in arr {
+                                if let JsonValue::String(s) = item {
+                                    cmd.arg(s);
+                                }
                             }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -1833,5 +1917,114 @@ mod tests {
         let server = McpServer::new();
         let tools = server.search_tools_for_task("search for text in files");
         assert!(!tools.is_empty());
+    }
+
+    fn args_of(pairs: &[(&str, JsonValue)]) -> HashMap<String, JsonValue> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn curl_maps_declared_parameters_to_flags_with_the_url_last() {
+        let args = args_of(&[
+            ("url", json!("https://api.example.com/data")),
+            ("method", json!("POST")),
+            (
+                "headers",
+                json!(["Content-Type: application/json", "Accept: */*"]),
+            ),
+            ("data", json!("{\"key\":\"value\"}")),
+        ]);
+        let argv = curl_argv(&args).expect("a well-formed call builds");
+        assert_eq!(
+            argv,
+            strings(&[
+                "-X",
+                "POST",
+                "-H",
+                "Content-Type: application/json",
+                "-H",
+                "Accept: */*",
+                "--data-raw",
+                "{\"key\":\"value\"}",
+                "--",
+                "https://api.example.com/data",
+            ])
+        );
+    }
+
+    #[test]
+    fn curl_with_only_a_url_is_a_plain_get() {
+        let argv = curl_argv(&args_of(&[("url", json!("https://example.com"))])).unwrap();
+        assert_eq!(argv, strings(&["--", "https://example.com"]));
+    }
+
+    #[test]
+    fn curl_sends_data_literally_and_never_reads_a_file_for_it() {
+        let args = args_of(&[
+            ("url", json!("https://example.com")),
+            ("data", json!("@/etc/passwd")),
+        ]);
+        let argv = curl_argv(&args).unwrap();
+        assert!(
+            argv.windows(2).any(|w| w == ["--data-raw", "@/etc/passwd"]),
+            "{argv:?}"
+        );
+        assert!(!argv.iter().any(|a| a == "--data"), "{argv:?}");
+    }
+
+    #[test]
+    fn curl_refuses_a_value_that_would_become_a_flag() {
+        for (name, value) in [
+            ("url", json!("-K/tmp/evil.conf")),
+            ("method", json!("-o")),
+            ("headers", json!(["-H"])),
+            ("data", json!("-o")),
+            ("data", json!(-5)),
+        ] {
+            let args = args_of(&[("url", json!("https://example.com")), (name, value)]);
+            let err = curl_argv(&args).expect_err(name);
+            let coded = err
+                .downcast_ref::<crate::safety::SafetyError>()
+                .expect("a coded refusal");
+            assert!(
+                matches!(coded.code, crate::safety::ErrorCode::BadArg),
+                "{name}: {coded:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn curl_refuses_output_and_headers_that_name_a_file() {
+        let to_file = args_of(&[
+            ("url", json!("https://example.com")),
+            ("output", json!("/tmp/x")),
+        ]);
+        assert!(curl_argv(&to_file).is_err(), "output must not reach curl");
+        let from_file = args_of(&[
+            ("url", json!("https://example.com")),
+            ("headers", json!(["@/etc/hosts"])),
+        ]);
+        assert!(
+            curl_argv(&from_file).is_err(),
+            "@file headers must not reach curl"
+        );
+    }
+
+    #[test]
+    fn curl_refuses_an_option_like_value_at_the_validation_gate_too() {
+        // The catalogue entry itself, through the check that runs before the gate.
+        let db = OSToolsDatabase::new();
+        let tool = db.get_tool("curl").expect("curl is in the catalogue");
+        for (name, value) in [("url", json!("-o")), ("data", json!("-K"))] {
+            let args = args_of(&[(name, value)]);
+            assert!(validate_tool_args(tool, &args).is_err(), "{name}");
+        }
     }
 }
