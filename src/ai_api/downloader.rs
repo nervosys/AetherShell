@@ -586,13 +586,23 @@ fn url_download_client() -> Result<Client> {
                 return attempt.error("too many redirects");
             }
             let next = attempt.url().to_string();
-            match crate::security::validate_http_url("download_model", &next) {
-                Ok(_) => attempt.follow(),
-                Err(e) => attempt.error(format!("redirect to {next} refused: {e}")),
+            match redirect_hop_refusal(&next) {
+                None => attempt.follow(),
+                Some(reason) => attempt.error(reason),
             }
         }))
         .build()
         .map_err(Into::into)
+}
+
+/// The decision for one redirect hop: `None` to follow it, or the reason to
+/// refuse it. It applies the same URL check as the first URL, so a hop to a
+/// loopback, private, link-local or metadata address is refused.
+fn redirect_hop_refusal(next: &str) -> Option<String> {
+    match crate::security::validate_http_url("download_model", next) {
+        Ok(_) => None,
+        Err(e) => Some(format!("redirect to {next} refused: {e}")),
+    }
 }
 
 /// Streams `url` into `local_path`, refusing a declared or actual length over
@@ -703,6 +713,47 @@ mod listed_file_name_tests {
         ] {
             assert!(check_listed_file_name(good).is_ok(), "{good:?} must pass");
         }
+    }
+}
+
+#[cfg(test)]
+mod redirect_hop_tests {
+    use super::redirect_hop_refusal;
+
+    // Only the decision is tested here: no hop is followed, so nothing
+    // connects. These hosts are refused by the address check itself; the
+    // test seam that exempts loopback is not set in this test binary.
+    #[test]
+    fn a_hop_to_an_internal_address_is_refused() {
+        for next in [
+            "http://127.0.0.1/model.gguf",
+            "http://127.0.0.1:8080/",
+            "http://localhost/",
+            "http://[::1]/",
+            "http://[::ffff:127.0.0.1]/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://[::ffff:169.254.169.254]/",
+            "http://10.0.0.5/",
+            "http://192.168.1.1/",
+            "http://0.0.0.0/",
+            "file:///etc/passwd",
+        ] {
+            let reason =
+                redirect_hop_refusal(next).unwrap_or_else(|| panic!("{next} must be refused"));
+            assert!(
+                reason.starts_with(&format!("redirect to {next} refused")),
+                "{reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_hop_to_a_public_address_is_followed() {
+        // An IP literal is checked without a lookup, and nothing is connected.
+        assert_eq!(
+            redirect_hop_refusal("https://93.184.216.34/model.safetensors"),
+            None
+        );
     }
 }
 

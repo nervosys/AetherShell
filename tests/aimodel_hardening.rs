@@ -375,3 +375,213 @@ fn a_configured_key_is_checked_against_every_key() {
         assert_eq!(status, expect, "token {token}: {body}");
     }
 }
+
+// ----- Key output: the aimodel binary never prints a stored key -----
+//
+// These run the real binary with every config and data path in a temp
+// directory. The OS credential store (`aimodel keys`) is not run: it is the
+// user's real store and has no override, so it is not exercised here.
+
+/// A fresh home for one binary run, with its config directory created.
+fn fresh_home(name: &str) -> PathBuf {
+    init();
+    let home = std::env::var_os("IRONSHELL_SESSION_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join(format!("aimodel-keys-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join("config").join("ai-models")).unwrap();
+    home
+}
+
+/// Every path the binary reads or writes comes from `home`.
+fn aimodel(home: &std::path::Path) -> std::process::Command {
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_aimodel"));
+    cmd.env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("HOME", home)
+        .env("APPDATA", home.join("appdata"))
+        .env("IRONSHELL_SESSION_DIR", home.join("session"));
+    cmd
+}
+
+/// Write `config` as the binary's config.toml under `home`.
+fn write_config(home: &std::path::Path, config: &APIConfig) {
+    let path = home.join("config").join("ai-models").join("config.toml");
+    std::fs::write(path, toml::to_string_pretty(config).unwrap()).unwrap();
+}
+
+/// A config holding two raw keys: one in the server key list, one provider key.
+fn config_with_keys() -> (APIConfig, [&'static str; 2]) {
+    let raw = ["ak-RAW-SERVER-KEY-7f3a9c2e", "sk-RAW-PROVIDER-KEY-91be04d8"];
+    let mut config = APIConfig::default();
+    config.security.api_keys = vec![raw[0].to_string()];
+    config.providers.openai.api_key = Some(raw[1].to_string());
+    (config, raw)
+}
+
+/// Run `cmd` with `stdin` piped in and return success and stdout + stderr.
+fn run_with_stdin(mut cmd: std::process::Command, stdin: &[u8]) -> (bool, String) {
+    use std::process::Stdio;
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // A command that does not read stdin may exit first; a broken pipe is fine.
+    let _ = child.stdin.take().unwrap().write_all(stdin);
+    let out = child.wait_with_output().unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    (out.status.success(), text)
+}
+
+#[test]
+fn config_show_prints_no_stored_key() {
+    let home = fresh_home("config-show");
+    let (config, raw) = config_with_keys();
+    write_config(&home, &config);
+
+    let mut cmd = aimodel(&home);
+    cmd.args(["config", "show"]);
+    let (ok, out) = run_with_stdin(cmd, b"");
+    assert!(ok, "{out}");
+    assert!(
+        out.contains("<redacted>"),
+        "keys should be replaced by a marker: {out}"
+    );
+    for key in raw {
+        assert!(!out.contains(key), "a stored key was printed: {out}");
+    }
+}
+
+#[test]
+fn provider_configure_reads_the_key_from_stdin_without_echoing_it() {
+    let key = "sk-STDIN-KEY-5d2e8a41c0";
+    for (args, input) in [
+        (
+            vec!["provider", "configure", "openai", "--api-key-stdin"],
+            format!("{key}\n"),
+        ),
+        (
+            vec!["provider", "configure", "openai", "--api-key", "-"],
+            format!("{key}\n"),
+        ),
+    ] {
+        let home = fresh_home("stdin");
+        let mut cmd = aimodel(&home);
+        cmd.args(&args);
+        let (ok, out) = run_with_stdin(cmd, input.as_bytes());
+        assert!(ok, "{args:?}: {out}");
+        // The key was read: its length is reported, trimmed of the newline.
+        assert!(
+            out.contains(&format!("API key provided (length: {})", key.len())),
+            "{args:?}: {out}"
+        );
+        assert!(!out.contains(key), "{args:?} echoed the key: {out}");
+        assert!(!out.contains(&key[..10]), "{args:?} echoed a prefix: {out}");
+    }
+}
+
+#[test]
+fn provider_configure_on_the_command_line_warns_and_does_not_echo() {
+    let key = "sk-ARGV-KEY-0a9b8c7d6e";
+    let home = fresh_home("argv");
+    let mut cmd = aimodel(&home);
+    cmd.args(["provider", "configure", "openai", "--api-key", key]);
+    let (ok, out) = run_with_stdin(cmd, b"");
+    assert!(ok, "{out}");
+    assert!(
+        out.contains("visible to other users"),
+        "the argv warning is missing: {out}"
+    );
+    assert!(!out.contains(key), "the key was echoed: {out}");
+}
+
+#[test]
+fn server_startup_prints_no_stored_key() {
+    use std::io::BufRead;
+    use std::process::Stdio;
+
+    let home = fresh_home("startup");
+    let (config, raw) = config_with_keys();
+    write_config(&home, &config);
+
+    // Port 0: the daemon binds an ephemeral loopback port. It runs in the
+    // foreground, so this test reads its startup output and then ends it.
+    let mut child = aimodel(&home)
+        .args(["server", "--host", "127.0.0.1", "--port", "0"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    for pipe in [Box::new(stdout) as Box<dyn Read + Send>, Box::new(stderr)] {
+        let seen = seen.clone();
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(pipe).lines().map_while(Result::ok) {
+                let is_banner = line.contains("OpenAPI docs");
+                seen.lock().unwrap().push_str(&line);
+                seen.lock().unwrap().push('\n');
+                if is_banner {
+                    let _ = tx.send(());
+                }
+            }
+        });
+    }
+    let started = rx.recv_timeout(Duration::from_secs(60)).is_ok();
+    // Let any later log line arrive before the process is ended.
+    std::thread::sleep(Duration::from_secs(1));
+    let _ = child.kill();
+    let _ = child.wait();
+    let out = seen.lock().unwrap().clone();
+
+    assert!(
+        started,
+        "the server never printed its startup banner: {out}"
+    );
+    assert!(out.contains("Starting AI Model API server"), "{out}");
+    for key in raw {
+        assert!(
+            !out.contains(key),
+            "a stored key was printed at startup: {out}"
+        );
+    }
+}
+
+/// Creating an API key returns the raw key once. Nothing kept or serialized
+/// with the record may hold it: not the audit entries, not the stored record.
+#[test]
+fn api_key_creation_keeps_the_raw_key_out_of_records() {
+    use iron_shell::auth::{AuthManager, RbacManager};
+    use std::sync::Arc;
+
+    let auth = AuthManager::new(Arc::new(RbacManager::new()));
+    let user = auth.register_user("keyuser", "a-password-value").unwrap();
+    let (record, raw) = auth.create_api_key(&user.id, "output-test").unwrap();
+    assert!(!raw.is_empty());
+
+    let record_json = serde_json::to_string(&record).unwrap();
+    assert!(
+        !record_json.contains(&raw),
+        "the stored record holds the raw key"
+    );
+    let audit = auth.get_audit_log(100);
+    assert!(!audit.is_empty(), "key creation should be audited");
+    for entry in &audit {
+        let json = serde_json::to_string(entry).unwrap();
+        assert!(
+            !json.contains(&raw),
+            "an audit entry holds the raw key: {json}"
+        );
+    }
+}
