@@ -8,21 +8,21 @@ IronShell (`ish`) is a shell and scripting language written in Rust that elimina
 
 ## Quick Links
 
-- Repository: https://github.com/nervosys/AetherShell
+- Repository: https://github.com/nervosys/IronShell
 - Crate: https://crates.io/crates/iron-shell
 - VS Code: https://marketplace.visualstudio.com/items?itemName=admercs.ironshell
 - License: AGPL-3.0-or-later (commercial license available)
-- Full AI context: https://raw.githubusercontent.com/nervosys/AetherShell/master/llms-full.txt
-- Agent API spec: https://raw.githubusercontent.com/nervosys/AetherShell/master/.well-known/openapi.yaml
+- Full AI context: https://raw.githubusercontent.com/nervosys/IronShell/master/llms-full.txt
+- Agent API spec: https://raw.githubusercontent.com/nervosys/IronShell/master/.well-known/openapi.yaml
 
 ## Core Concepts
 
-- Language: [README.md](https://github.com/nervosys/AetherShell/blob/master/README.md)
-- Specification: [docs/specs/SPEC.md](https://github.com/nervosys/AetherShell/blob/master/docs/specs/SPEC.md)
-- TUI Guide: [docs/TUI_GUIDE.md](https://github.com/nervosys/AetherShell/blob/master/docs/TUI_GUIDE.md)
-- Agent API: [AGENTS.md](https://github.com/nervosys/AetherShell/blob/master/AGENTS.md)
-- Roadmap: [ROADMAP.md](https://github.com/nervosys/AetherShell/blob/master/ROADMAP.md)
-- Contributing: [CONTRIBUTING.md](https://github.com/nervosys/AetherShell/blob/master/CONTRIBUTING.md)
+- Language: [README.md](https://github.com/nervosys/IronShell/blob/master/README.md)
+- Specification: [docs/specs/SPEC.md](https://github.com/nervosys/IronShell/blob/master/docs/specs/SPEC.md)
+- TUI Guide: [docs/TUI_GUIDE.md](https://github.com/nervosys/IronShell/blob/master/docs/TUI_GUIDE.md)
+- Agent API: [AGENTS.md](https://github.com/nervosys/IronShell/blob/master/AGENTS.md)
+- Roadmap: [ROADMAP.md](https://github.com/nervosys/IronShell/blob/master/ROADMAP.md)
+- Contributing: [CONTRIBUTING.md](https://github.com/nervosys/IronShell/blob/master/CONTRIBUTING.md)
 
 ## Key Capabilities
 

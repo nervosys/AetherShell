@@ -2,10 +2,10 @@
 
 The changelog is maintained in one place, at the root of the repository:
 
-- **[CHANGELOG.md](https://github.com/nervosys/AetherShell/blob/master/CHANGELOG.md)**
+- **[CHANGELOG.md](https://github.com/nervosys/IronShell/blob/master/CHANGELOG.md)**
   — every release, in [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
   form.
-- **[Releases](https://github.com/nervosys/AetherShell/releases)** — the tagged
+- **[Releases](https://github.com/nervosys/IronShell/releases)** — the tagged
   builds, with binaries for Linux, macOS and Windows.
 
 This page used to carry a second, hand-written copy covering v0.1.0 to v0.3.0,

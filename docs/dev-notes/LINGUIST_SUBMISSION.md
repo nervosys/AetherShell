@@ -56,7 +56,7 @@ git checkout -b add-ironshell
 ### 2. Add Grammar
 
 ```bash
-script/add-grammar https://github.com/nervosys/AetherShell \
+script/add-grammar https://github.com/nervosys/IronShell \
   --scope source.ironshell \
   --path editors/vscode/syntaxes/ironshell.tmLanguage.json
 ```
@@ -191,4 +191,4 @@ updated, Linguist automatically picks up changes on its next release cycle
 - [Linguist Contributing Guide](https://github.com/github-linguist/linguist/blob/main/CONTRIBUTING.md)
 - [languages.yml](https://github.com/github-linguist/linguist/blob/main/lib/linguist/languages.yml)
 - [TextMate Grammar Reference](https://macromates.com/manual/en/language_grammars)
-- [IronShell Repository](https://github.com/nervosys/AetherShell)
+- [IronShell Repository](https://github.com/nervosys/IronShell)

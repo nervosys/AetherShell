@@ -5,7 +5,7 @@
         {
             "name": "IronShell",
             "commandline": "ish",
-            "icon": "https://raw.githubusercontent.com/nervosys/AetherShell/master/assets/logo.svg",
+            "icon": "https://raw.githubusercontent.com/nervosys/IronShell/master/assets/logo.svg",
             "startingDirectory": "%USERPROFILE%",
             "tabTitle": "IronShell",
             "colorScheme": "One Half Dark",
@@ -19,7 +19,7 @@
         {
             "name": "IronShell TUI",
             "commandline": "ish tui",
-            "icon": "https://raw.githubusercontent.com/nervosys/AetherShell/master/assets/logo.svg",
+            "icon": "https://raw.githubusercontent.com/nervosys/IronShell/master/assets/logo.svg",
             "startingDirectory": "%USERPROFILE%",
             "tabTitle": "IronShell TUI",
             "colorScheme": "One Half Dark",

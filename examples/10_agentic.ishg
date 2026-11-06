@@ -14,7 +14,7 @@ e"Running on ${host}"
 l"./src"|w~.size>1k|m~.name
 
 ; ── v2 HTTP + JSON with func abbreviations ── 
-H.g("https://api.github.com/repos/nervosys/AetherShell")|J.p(_)|s"stargazers_count"
+H.g("https://api.github.com/repos/nervosys/IronShell")|J.p(_)|s"stargazers_count"
 
 ; ── v1 Compat: @ prefix and # prefix still work ──
 ; ai() takes no context argument: put the file text into the prompt

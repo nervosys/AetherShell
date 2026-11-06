@@ -51,8 +51,8 @@ const CORPUS: &[Task] = &[
     },
     Task {
         name: "http+json+select",
-        legible: r#"http.get("https://api.github.com/repos/nervosys/AetherShell") | json.parse(_) | select("stargazers_count")"#,
-        cipher: r#"H.g"https://api.github.com/repos/nervosys/AetherShell"|J.p(_)|s"stargazers_count""#,
+        legible: r#"http.get("https://api.github.com/repos/nervosys/IronShell") | json.parse(_) | select("stargazers_count")"#,
+        cipher: r#"H.g"https://api.github.com/repos/nervosys/IronShell"|J.p(_)|s"stargazers_count""#,
     },
     Task {
         name: "map+filter+reduce",

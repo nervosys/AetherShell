@@ -819,7 +819,7 @@ Checked by SHA on 2026-08-24 (session 2) via the public checks API, since `gh`
 was still unavailable:
 
 ```
-GET /repos/nervosys/AetherShell/commits/756e200/check-runs
+GET /repos/nervosys/IronShell/commits/756e200/check-runs
 ```
 
 **`Lint` — `completed / failure`.** Everything else on that SHA is green:
@@ -844,7 +844,7 @@ The job's two annotations are all the detail the public API exposes:
 
 `GET /actions/jobs/97603961189/logs` is **403 unauthenticated**, so the offending
 lint cannot be named from here. Failing job:
-<https://github.com/nervosys/AetherShell/actions/runs/32781371434/job/97603961189>
+<https://github.com/nervosys/IronShell/actions/runs/32781371434/job/97603961189>
 
 **Next session, first thing:** `cargo clippy --all-targets --features native`
 locally and fix what it reports. Note this is a pre-existing failure on the

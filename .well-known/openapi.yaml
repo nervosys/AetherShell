@@ -19,7 +19,7 @@ info:
     url: https://www.gnu.org/licenses/agpl-3.0.html
   contact:
     name: Nervosys
-    url: https://github.com/nervosys/AetherShell
+    url: https://github.com/nervosys/IronShell
     email: contact@nervosys.ai
 
 servers:

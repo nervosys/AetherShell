@@ -9,7 +9,7 @@
 - **Binary**: `ish` (`ae`, the pre-14.0.0 name, is installed as an alias)
 - **Language**: Rust
 - **Version**: 12.0.2 (13.0.0 in preparation)
-- **Repository**: https://github.com/nervosys/AetherShell
+- **Repository**: https://github.com/nervosys/IronShell
 - **License**: AGPL-3.0-or-later
 - **File Extension**: `.ish`
 

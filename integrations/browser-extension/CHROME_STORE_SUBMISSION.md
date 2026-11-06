@@ -70,8 +70,8 @@ Escape - Close terminal
 
 🔗 LINKS
 
-GitHub: https://github.com/nervosys/AetherShell
-Documentation: https://github.com/nervosys/AetherShell/docs
+GitHub: https://github.com/nervosys/IronShell
+Documentation: https://github.com/nervosys/IronShell/docs
 Crates.io: https://crates.io/crates/iron-shell
 
 Built with ❤️ by Nervosys
@@ -159,7 +159,7 @@ When you explicitly use AI features:
 ## Contact
 
 For privacy questions: contact@nervosys.ai
-GitHub: https://github.com/nervosys/AetherShell
+GitHub: https://github.com/nervosys/IronShell
 ```
 
 ## Review Checklist

@@ -587,7 +587,7 @@ impl ShellConfig {
     pub fn generate_default_config() -> String {
         r##"# IronShell Configuration
 # Location: ~/.config/ironshell/config.toml
-# Documentation: https://github.com/nervosys/AetherShell#configuration
+# Documentation: https://github.com/nervosys/IronShell#configuration
 
 [shell]
 # Show welcome banner on startup

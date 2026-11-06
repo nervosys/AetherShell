@@ -1,6 +1,6 @@
 # IronShell JupyterLab Extension
 
-Jupyter kernel and JupyterLab integration for [IronShell](https://github.com/nervosys/AetherShell).
+Jupyter kernel and JupyterLab integration for [IronShell](https://github.com/nervosys/IronShell).
 
 ## Features
 

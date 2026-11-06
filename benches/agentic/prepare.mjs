@@ -24,12 +24,23 @@ const PAGES = 5; // 100 per page
 
 let raw = [];
 for (let p = 1; p <= PAGES; p++) {
-    const body = execFileSync(
-        'gh', ['api', `repos/${REPO}/issues?state=all&per_page=100&page=${p}`],
-        // No shell: under cmd.exe the `&` in the query string ended the command,
-        // and `gh` is a real executable that needs none.
-        { encoding: 'utf8', maxBuffer: 64 << 20 }
-    );
+    // Three tries: a TLS handshake timeout from api.github.com failed one call
+    // in three on 2026-11-06. A page either arrives whole or the run stops.
+    let body;
+    for (let attempt = 1; ; attempt++) {
+        try {
+            body = execFileSync(
+                'gh', ['api', `repos/${REPO}/issues?state=all&per_page=100&page=${p}`],
+                // No shell: under cmd.exe the `&` in the query string ended the command,
+                // and `gh` is a real executable that needs none.
+                { encoding: 'utf8', maxBuffer: 64 << 20 }
+            );
+            break;
+        } catch (e) {
+            if (attempt >= 3) throw e;
+            console.error(`page ${p}: attempt ${attempt} failed, retrying`);
+        }
+    }
     raw = raw.concat(JSON.parse(body));
 }
 

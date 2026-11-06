@@ -92,7 +92,7 @@ Write-Host "   4. Attempt crates.io, npm and PyPI publishing only when their pre
 Write-Host "   5. Verify registry publishing outcomes separately from build success" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Monitor progress at:" -ForegroundColor White
-Write-Host "   https://github.com/nervosys/AetherShell/actions" -ForegroundColor Cyan
+Write-Host "   https://github.com/nervosys/IronShell/actions" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Review the published release and artifact completeness at:" -ForegroundColor White
-Write-Host "   https://github.com/nervosys/AetherShell/releases" -ForegroundColor Cyan
+Write-Host "   https://github.com/nervosys/IronShell/releases" -ForegroundColor Cyan

@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Nervosys <contact@nervosys.ai>"]
 description = "IronShell WebAssembly bindings for browser execution"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/nervosys/AetherShell"
+repository = "https://github.com/nervosys/IronShell"
 
 # Exclude from parent workspace
 [workspace]

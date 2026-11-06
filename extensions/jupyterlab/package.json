@@ -4,10 +4,10 @@
   "description": "IronShell kernel and language support for JupyterLab",
   "license": "AGPL-3.0-or-later",
   "author": "Nervosys",
-  "homepage": "https://github.com/nervosys/AetherShell",
+  "homepage": "https://github.com/nervosys/IronShell",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nervosys/AetherShell"
+    "url": "https://github.com/nervosys/IronShell"
   },
   "keywords": [
     "jupyter",

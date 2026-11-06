@@ -18,9 +18,9 @@ Historical checklist for v0.1.0. Current release preparation is tracked in
 - [x] **authors** - Nervosys <contact@nervosys.ai>
 - [x] **description** - "The world's first multi-agent shell with typed functional pipelines and multi-modal AI"
 - [x] **license** - "MIT"
-- [x] **repository** - https://github.com/nervosys/AetherShell
-- [x] **homepage** - https://github.com/nervosys/AetherShell
-- [x] **documentation** - https://github.com/nervosys/AetherShell/tree/master/docs
+- [x] **repository** - https://github.com/nervosys/IronShell
+- [x] **homepage** - https://github.com/nervosys/IronShell
+- [x] **documentation** - https://github.com/nervosys/IronShell/tree/master/docs
 - [x] **keywords** - shell, ai, multi-agent, functional, multimodal
 - [x] **categories** - command-line-utilities, development-tools
 - [x] **readme** - "README.md"
@@ -81,7 +81,7 @@ git push origin v0.1.0
 cargo publish
 
 # 4. Create GitHub release
-# - Go to https://github.com/nervosys/AetherShell/releases/new
+# - Go to https://github.com/nervosys/IronShell/releases/new
 # - Select tag v0.1.0
 # - Title: "IronShell v0.1.0 - Initial Release"
 # - Copy content from CHANGELOG.md

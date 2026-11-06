@@ -23,8 +23,8 @@ Thank you for your interest in contributing to IronShell! This document provides
 
 ```bash
 # Clone the repository
-git clone https://github.com/nervosys/AetherShell
-cd AetherShell
+git clone https://github.com/nervosys/IronShell
+cd IronShell
 
 # Build the project
 cargo build --release

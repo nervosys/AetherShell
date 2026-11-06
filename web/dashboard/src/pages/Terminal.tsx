@@ -274,5 +274,5 @@ TERMINAL:
   clear                   Clear terminal
   help                    Show this help
 
-For more, see: https://github.com/nervosys/AetherShell
+For more, see: https://github.com/nervosys/IronShell
 `

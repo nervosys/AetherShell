@@ -1,6 +1,6 @@
 # IronShell VS Code Web Extension
 
-Language support and Agent API integration for [IronShell](https://github.com/nervosys/AetherShell) in VS Code Web (vscode.dev).
+Language support and Agent API integration for [IronShell](https://github.com/nervosys/IronShell) in VS Code Web (vscode.dev).
 
 ## Features
 

@@ -1,20 +1,20 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Æther Shell" width="100%">
+  <img src="assets/banner.png" alt="IronShell" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/nervosys/AetherShell/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/AetherShell/ci.yml?style=flat-square&logo=github&label=CI" alt="CI"></a>
+  <a href="https://github.com/nervosys/IronShell/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/IronShell/ci.yml?style=flat-square&logo=github&label=CI" alt="CI"></a>
   <a href="https://crates.io/crates/iron-shell"><img src="https://img.shields.io/crates/v/iron-shell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
   <a href="https://crates.io/crates/iron-shell"><img src="https://img.shields.io/crates/d/iron-shell?style=flat-square&color=orange&label=downloads" alt="Downloads"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=admercs.ironshell"><img src="https://img.shields.io/visual-studio-marketplace/v/admercs.ironshell?style=flat-square&logo=visual-studio-code&label=VS%20Code" alt="VS Code"></a>
-  <a href="https://github.com/nervosys/AetherShell/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg?style=flat-square" alt="License"></a>
-  <a href="https://github.com/nervosys/AetherShell/stargazers"><img src="https://img.shields.io/github/stars/nervosys/AetherShell?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://github.com/nervosys/IronShell/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg?style=flat-square" alt="License"></a>
+  <a href="https://github.com/nervosys/IronShell/stargazers"><img src="https://img.shields.io/github/stars/nervosys/IronShell?style=flat-square&color=yellow" alt="Stars"></a>
 </p>
 
 <h3 align="center">The shell for AI agents. Typed pipelines. Multi-modal. Protocol-native.</h3>
 
 <p align="center">
-  <a href="https://nervosys.github.io/AetherShell/book/">Documentation</a> •
+  <a href="https://nervosys.github.io/IronShell/book/">Documentation</a> •
   <a href="#getting-started">Getting Started</a> •
   <a href="#syntax">Syntax</a> •
   <a href="#agentic-benchmark">Benchmark</a> •
@@ -73,15 +73,15 @@ cargo install iron-shell          # from crates.io
 ```bash
 # Homebrew
 # (the formula lives in this repository, so tap it by URL)
-brew tap nervosys/aethershell https://github.com/nervosys/AetherShell
-brew install nervosys/aethershell/ironshell
+brew tap nervosys/ironshell https://github.com/nervosys/IronShell
+brew install nervosys/ironshell/ironshell
 
 # From source
-git clone https://github.com/nervosys/AetherShell && cd AetherShell
+git clone https://github.com/nervosys/IronShell && cd IronShell
 cargo install --path . --bin ish
 
 # Prebuilt binaries for Linux, macOS and Windows
-# https://github.com/nervosys/AetherShell/releases
+# https://github.com/nervosys/IronShell/releases
 ```
 
 Editor support: `code --install-extension admercs.ironshell`, or
@@ -99,9 +99,12 @@ ish -c 'expr'           # evaluate one expression
 ish tui                 # full-screen interactive mode
 ```
 
-IronShell was called AetherShell before 14.0.0. The `ae` command is still
-installed as an alias of `ish`. Scripts must be renamed from `.ae` to `.ish`, and
-variables from `AETHER_*` to `IRONSHELL_*`; the old names are no longer read.
+IronShell was called AetherShell before 14.0.0, and this repository was
+`nervosys/AetherShell` (old links redirect). The crate is `iron-shell`, the Python
+SDK `ironshell`. The `ae` command is still installed as an alias of `ish`. Scripts
+must be renamed from `.ae` to `.ish`, and variables from `AETHER_*` to
+`IRONSHELL_*`; the old names are no longer read. What else changed is in
+[CHANGELOG.md](CHANGELOG.md).
 
 Three flags matter more than the rest, and they are what make this shell
 different from the one you are using now:
@@ -177,7 +180,7 @@ ls("src") | sort_by("size") | reverse | take(5) | map(fn(f) => f.name)
 **Fetch JSON and pull one field out**
 
 ```ironshell
-http_get("https://api.github.com/repos/nervosys/AetherShell")
+http_get("https://api.github.com/repos/nervosys/IronShell")
   | from_json
   | keys
 ```
@@ -618,6 +621,18 @@ running unbounded. **Output cap** (opt-in: `IRONSHELL_MAX_OUTPUT_BYTES=<n>`) cut
 result of a one-shot `ish -c` at `n` bytes, on a UTF-8 boundary, and reports the bytes omitted
 on stderr; the exit status is unchanged, and unset means no cut. It does not cut a streaming
 child's stdout, which goes straight to the terminal.
+
+**What an agent cannot change.** In agent mode the workspace root is fixed at startup,
+so a `cd` moves the working directory but not the jail or the audit log. Variables that
+steer the programs a shell starts (`PATH`, `HOME`, `GIT_*`, `LD_*`, `DYLD_*`, `XDG_*`,
+`IRONGATE_*`, `*_PROXY`, provider keys) cannot be set or unset by the agent; whoever
+launches it sets them. The jail resolves symbolic links and `..` the way the operating
+system does, and on Windows a path must stay inside under both of the readings Windows
+can give it. Network calls ask for approval, and once approved they still refuse
+internal and metadata addresses, on every redirect hop and in IPv4-mapped forms, and
+connect only to the address that was checked. These came out of the 2026-11-04 audit;
+[its write-up](docs/security/SECURITY_AUDIT_2026-11-04.md) lists what was fixed and the
+risks that remain.
 
 ### Transactions & checkpoints (no other shell offers this)
 
@@ -1323,8 +1338,8 @@ Dual-licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-
 
 <p align="center">
   <strong>IronShell</strong> - The OS interface for agentic AI<br>
-  <a href="https://github.com/nervosys/AetherShell">GitHub</a> |
+  <a href="https://github.com/nervosys/IronShell">GitHub</a> |
   <a href="https://crates.io/crates/iron-shell">Crates.io</a> |
-  <a href="https://nervosys.github.io/AetherShell/book/">Documentation</a> |
-  <a href="https://github.com/nervosys/AetherShell/issues">Issues</a>
+  <a href="https://nervosys.github.io/IronShell/book/">Documentation</a> |
+  <a href="https://github.com/nervosys/IronShell/issues">Issues</a>
 </p>

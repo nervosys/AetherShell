@@ -160,7 +160,7 @@ fn the_book_configuration_still_refuses_to_invent_chapters() {
 fn the_published_book_is_linked_from_the_readme() {
     let readme = std::fs::read_to_string(root().join("README.md")).expect("read README.md");
     assert!(
-        readme.contains("nervosys.github.io/AetherShell/book/"),
+        readme.contains("nervosys.github.io/IronShell/book/"),
         "the README must link the published book. It is the first thing anyone \
          reads, and the only question on the repository's one open issue was \
          whether documentation exists at all."

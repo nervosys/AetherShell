@@ -1,7 +1,7 @@
 # iron-shell-lsp
 
 A [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
-implementation for [IronShell](https://github.com/nervosys/AetherShell) — the
+implementation for [IronShell](https://github.com/nervosys/IronShell) — the
 typed, functional, multi-agent shell. It gives editors (VS Code, Neovim, Helix,
 and any LSP client) language intelligence for `.ish` scripts.
 

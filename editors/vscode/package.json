@@ -299,10 +299,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nervosys/AetherShell"
+    "url": "https://github.com/nervosys/IronShell"
   },
   "bugs": {
-    "url": "https://github.com/nervosys/AetherShell/issues"
+    "url": "https://github.com/nervosys/IronShell/issues"
   },
-  "homepage": "https://github.com/nervosys/AetherShell#readme"
+  "homepage": "https://github.com/nervosys/IronShell#readme"
 }

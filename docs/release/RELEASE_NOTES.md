@@ -28,8 +28,8 @@ IronShell v0.1.0 is the **first multi-agent shell with typed functional pipeline
 
 ### From Source (Current)
 ```bash
-git clone https://github.com/nervosys/AetherShell.git
-cd AetherShell
+git clone https://github.com/nervosys/IronShell.git
+cd IronShell
 cargo build --release
 ```
 
@@ -182,9 +182,9 @@ Built with amazing Rust crates:
 
 ## 📞 Support & Community
 
-- **Issues**: [GitHub Issues](https://github.com/nervosys/AetherShell/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/nervosys/AetherShell/discussions)
-- **Documentation**: [docs/](https://github.com/nervosys/AetherShell/tree/master/docs)
+- **Issues**: [GitHub Issues](https://github.com/nervosys/IronShell/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/nervosys/IronShell/discussions)
+- **Documentation**: [docs/](https://github.com/nervosys/IronShell/tree/master/docs)
 
 ---
 

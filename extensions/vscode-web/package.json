@@ -7,7 +7,7 @@
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nervosys/AetherShell"
+    "url": "https://github.com/nervosys/IronShell"
   },
   "engines": {
     "vscode": "^1.85.0"

@@ -2,7 +2,7 @@
 
 > One language, every platform, deterministic typed output — the shell built for AI agents.
 > Version: 12.0.2 (13.0.0 in preparation) | License: AGPL-3.0-or-later | Language: Rust
-> Repository: https://github.com/nervosys/AetherShell
+> Repository: https://github.com/nervosys/IronShell
 > Crate: https://crates.io/crates/iron-shell (733 KiB compressed)
 
 This file contains everything an AI model needs to understand, use, and generate IronShell code.
@@ -33,7 +33,7 @@ IronShell (`ish`) eliminates this entire class of failure. It provides a single 
 cargo install iron-shell
 
 # From source
-git clone https://github.com/nervosys/AetherShell && cd AetherShell
+git clone https://github.com/nervosys/IronShell && cd IronShell
 cargo install --path . --bin ish
 
 # Verify
@@ -500,7 +500,7 @@ file               # => {read, write, exists, copy, move, patch, ...}
 - **Version**: 12.0.2 (13.0.0 in preparation)
 - **License**: AGPL-3.0-or-later (commercial dual-license available)
 - **Author**: Nervosys <contact@nervosys.ai>
-- **Repository**: https://github.com/nervosys/AetherShell
+- **Repository**: https://github.com/nervosys/IronShell
 - **Crate**: https://crates.io/crates/iron-shell
 - **VS Code**: https://marketplace.visualstudio.com/items?itemName=admercs.ironshell
 - **Keywords**: shell, ai, multi-agent, functional, multimodal, typed-pipelines, mcp

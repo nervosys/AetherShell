@@ -16,8 +16,8 @@ create-missing = false
 [output.html]
 default-theme = "ayu"
 preferred-dark-theme = "ayu"
-git-repository-url = "https://github.com/nervosys/AetherShell"
-edit-url-template = "https://github.com/nervosys/AetherShell/edit/master/docs/book/src/{path}"
+git-repository-url = "https://github.com/nervosys/IronShell"
+edit-url-template = "https://github.com/nervosys/IronShell/edit/master/docs/book/src/{path}"
 site-url = "/IronShell/book/"
 additional-css = ["custom.css"]
 

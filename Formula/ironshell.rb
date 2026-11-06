@@ -1,16 +1,16 @@
 # Homebrew Formula for IronShell
 # This formula lives in the IronShell repository itself, not a homebrew-tap
 # repository, so tap it by URL:
-#   brew tap nervosys/aethershell https://github.com/nervosys/AetherShell
-#   brew install nervosys/aethershell/ironshell
+#   brew tap nervosys/ironshell https://github.com/nervosys/IronShell
+#   brew install nervosys/ironshell/ironshell
 
 class Ironshell < Formula
   desc "AI-powered typed shell with functional pipelines and multi-agent support"
-  homepage "https://github.com/nervosys/AetherShell"
-  url "https://github.com/nervosys/AetherShell/archive/refs/tags/v12.0.2.tar.gz"
+  homepage "https://github.com/nervosys/IronShell"
+  url "https://github.com/nervosys/IronShell/archive/refs/tags/v12.0.2.tar.gz"
   sha256 "77c274507784bcf89b576fbcfb0f649242f85292b3ee5202604506ddda247e4e"
   license "AGPL-3.0-or-later"
-  head "https://github.com/nervosys/AetherShell.git", branch: "master"
+  head "https://github.com/nervosys/IronShell.git", branch: "master"
 
   depends_on "rust" => :build
 
@@ -42,7 +42,7 @@ class Ironshell < Formula
         export OPENAI_API_KEY=your-key-here
         # Or use local models with Ollama
 
-      Documentation: https://github.com/nervosys/AetherShell
+      Documentation: https://github.com/nervosys/IronShell
     EOS
   end
 

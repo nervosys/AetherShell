@@ -570,7 +570,7 @@ For agentic automation that has to be auditable and confined, and for structured
 **Generated**: October 14, 2025  
 **IronShell Version**: 0.1.0  
 **License**: MIT (Open Source)  
-**Repository**: https://github.com/nervosys/AetherShell
+**Repository**: https://github.com/nervosys/IronShell
 
 ---
 

@@ -44,8 +44,8 @@
 ### Installation
 
 ```bash
-git clone https://github.com/nervosys/AetherShell
-cd AetherShell
+git clone https://github.com/nervosys/IronShell
+cd IronShell
 cargo install --path . --bin ish
 ```
 
@@ -193,8 +193,8 @@ print(resp.headers."content-type")
 ### Install (from source)
 
 ```bash
-git clone https://github.com/nervosys/AetherShell
-cd AetherShell
+git clone https://github.com/nervosys/IronShell
+cd IronShell
 cargo install --path . --bin ish
 ```
 
@@ -476,8 +476,8 @@ We welcome contributions! Here's how to get started:
 
 ### Development Setup
 ```bash
-git clone https://github.com/nervosys/AetherShell
-cd AetherShell
+git clone https://github.com/nervosys/IronShell
+cd IronShell
 cargo build --release
 cargo test --tests --all-features
 ```

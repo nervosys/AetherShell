@@ -29,8 +29,8 @@ brew install openssl pkg-config
 ## Clone and Build
 
 ```bash
-git clone https://github.com/nervosys/AetherShell.git
-cd AetherShell
+git clone https://github.com/nervosys/IronShell.git
+cd IronShell
 cargo build --bins
 ```
 

@@ -66,10 +66,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nervosys/AetherShell"
-Documentation = "https://github.com/nervosys/AetherShell/blob/master/integrations/python/README.md"
-Repository = "https://github.com/nervosys/AetherShell"
-Issues = "https://github.com/nervosys/AetherShell/issues"
+Homepage = "https://github.com/nervosys/IronShell"
+Documentation = "https://github.com/nervosys/IronShell/blob/master/integrations/python/README.md"
+Repository = "https://github.com/nervosys/IronShell"
+Issues = "https://github.com/nervosys/IronShell/issues"
 
 [tool.setuptools.packages.find]
 where = ["python"]

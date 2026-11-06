@@ -107,7 +107,7 @@ See [examples/README.md](../examples/README.md) for the complete list.
 
 Found an error in the docs? Want to add more examples?
 
-1. Fork the [repository](https://github.com/nervosys/AetherShell)
+1. Fork the [repository](https://github.com/nervosys/IronShell)
 2. Make your changes
 3. Submit a pull request
 

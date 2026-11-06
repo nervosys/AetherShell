@@ -384,8 +384,8 @@ This document tracks the development progress of IronShell, the world's first ag
 ### Distribution
 - **crates.io:** [aethershell v12.0.2](https://crates.io/crates/aethershell) + [aethershell-lsp v12.0.2](https://crates.io/crates/aethershell-lsp)
 - **VS Code:** [admercs.ironshell](https://marketplace.visualstudio.com/items?itemName=admercs.ironshell)
-- **GitHub:** [nervosys/AetherShell](https://github.com/nervosys/AetherShell) — v12.0.2 release with binaries
-- **Homebrew:** `brew tap nervosys/aethershell https://github.com/nervosys/AetherShell`, then `brew install nervosys/aethershell/ironshell`
+- **GitHub:** [nervosys/IronShell](https://github.com/nervosys/IronShell) — v12.0.2 release with binaries
+- **Homebrew:** `brew tap nervosys/ironshell https://github.com/nervosys/IronShell`, then `brew install nervosys/ironshell/ironshell`
 - **npm:** `npm install @nervosys/aethershell`
 
 ---
@@ -404,6 +404,6 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Contact
 
-- **GitHub Issues:** [Report bugs or request features](https://github.com/nervosys/AetherShell/issues)
-- **Discussions:** [Join the conversation](https://github.com/nervosys/AetherShell/discussions)
+- **GitHub Issues:** [Report bugs or request features](https://github.com/nervosys/IronShell/issues)
+- **Discussions:** [Join the conversation](https://github.com/nervosys/IronShell/discussions)
 - **Website:** [nervosys.ai](https://nervosys.ai)

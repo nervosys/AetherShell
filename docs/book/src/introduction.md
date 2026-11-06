@@ -53,9 +53,9 @@ If you're coming from Bash or PowerShell, check out our [Quick Start](./getting-
 
 ## Community
 
-- **GitHub**: [nervosys/AetherShell](https://github.com/nervosys/AetherShell)
-- **Issues**: [Report a bug or ask a question](https://github.com/nervosys/AetherShell/issues)
+- **GitHub**: [nervosys/IronShell](https://github.com/nervosys/IronShell)
+- **Issues**: [Report a bug or ask a question](https://github.com/nervosys/IronShell/issues)
 
 ## License
 
-IronShell is open source under the [Apache 2.0 License](https://github.com/nervosys/AetherShell/blob/master/LICENSE).
+IronShell is open source under the [Apache 2.0 License](https://github.com/nervosys/IronShell/blob/master/LICENSE).

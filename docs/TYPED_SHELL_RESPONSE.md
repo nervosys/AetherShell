@@ -1331,4 +1331,4 @@ Engines whose binary is absent are skipped and named, never silently dropped.
 If the `real-tokens` build is unavailable the report says the token counts are
 missing rather than substituting a heuristic.
 
-*IronShell 12.0.2 · AGPL-3.0-or-later · [github.com/nervosys/AetherShell](https://github.com/nervosys/AetherShell)*
+*IronShell 12.0.2 · AGPL-3.0-or-later · [github.com/nervosys/IronShell](https://github.com/nervosys/IronShell)*

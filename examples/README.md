@@ -298,7 +298,7 @@ Want to add an example? Please include:
 3. **Prerequisites** (API keys, files needed, etc.)
 4. **Unique value** - what does this example teach?
 
-Submit via pull request to: https://github.com/nervosys/AetherShell
+Submit via pull request to: https://github.com/nervosys/IronShell
 
 ---
 

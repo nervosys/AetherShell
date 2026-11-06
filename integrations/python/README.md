@@ -26,7 +26,7 @@ pip install ./integrations/python
 
 Requires the `ish` binary on `PATH`. Install it with
 `cargo install iron-shell`, or take a prebuilt binary from the
-[releases page](https://github.com/nervosys/AetherShell/releases).
+[releases page](https://github.com/nervosys/IronShell/releases).
 
 > **Versioning:** this SDK versions independently of the `ish` shell. The SDK in
 > this repository is 1.5.1; PyPI carries 1.5.0, a manual upload, because CI has
@@ -278,8 +278,8 @@ runtime.subscribe_a2ui(on_event)
 
 ```bash
 # Clone repository
-git clone https://github.com/nervosys/AetherShell.git
-cd AetherShell/integrations/python
+git clone https://github.com/nervosys/IronShell.git
+cd IronShell/integrations/python
 
 # Install development dependencies
 pip install -e ".[dev]"

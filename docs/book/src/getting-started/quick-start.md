@@ -144,7 +144,7 @@ Save as `example.ish`:
 
 ```ironshell
 # Fetch and process data
-let response = http_get("https://api.github.com/repos/nervosys/AetherShell")
+let response = http_get("https://api.github.com/repos/nervosys/IronShell")
 let repo = json_parse(response.body)
 
 print("Repository: " + repo.full_name)

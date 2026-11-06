@@ -1,6 +1,6 @@
 # ÆtherShell Extension for VS Code
 
-This extension provides language support for [IronShell](https://github.com/nervosys/AetherShell), a typed, functional shell with AI capabilities.
+This extension provides language support for [IronShell](https://github.com/nervosys/IronShell), a typed, functional shell with AI capabilities.
 
 ## Features
 
@@ -22,7 +22,7 @@ This extension provides language support for [IronShell](https://github.com/nerv
 This extension uses the IronShell Language Server (LSP) for advanced features. Build it from the IronShell repository:
 
 ```bash
-cd AetherShell
+cd IronShell
 cargo build -p iron-shell-lsp --release
 ```
 
@@ -128,8 +128,8 @@ agent("Find and fix bugs in src/")
 
 ## Contributing
 
-Contributions are welcome! Please visit the [IronShell repository](https://github.com/nervosys/AetherShell).
+Contributions are welcome! Please visit the [IronShell repository](https://github.com/nervosys/IronShell).
 
 ## License
 
-AGPL-3.0-or-later with commercial dual-license option — see the [LICENSE](https://github.com/nervosys/AetherShell/blob/master/LICENSE) file.
+AGPL-3.0-or-later with commercial dual-license option — see the [LICENSE](https://github.com/nervosys/IronShell/blob/master/LICENSE) file.

@@ -10,9 +10,9 @@
   },
   "api": {
     "type": "openapi",
-    "url": "https://raw.githubusercontent.com/nervosys/AetherShell/master/.well-known/openapi.yaml"
+    "url": "https://raw.githubusercontent.com/nervosys/IronShell/master/.well-known/openapi.yaml"
   },
-  "logo_url": "https://raw.githubusercontent.com/nervosys/AetherShell/master/assets/icon.png",
+  "logo_url": "https://raw.githubusercontent.com/nervosys/IronShell/master/assets/icon.png",
   "contact_email": "contact@nervosys.ai",
-  "legal_info_url": "https://github.com/nervosys/AetherShell/blob/master/LICENSE"
+  "legal_info_url": "https://github.com/nervosys/IronShell/blob/master/LICENSE"
 }

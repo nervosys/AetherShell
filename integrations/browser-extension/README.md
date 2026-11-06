@@ -132,4 +132,4 @@ cd integrations/browser-extension
 
 ## License
 
-AGPL-3.0-or-later with commercial dual-license option — see the main IronShell [LICENSE](https://github.com/nervosys/AetherShell/blob/master/LICENSE) file.
+AGPL-3.0-or-later with commercial dual-license option — see the main IronShell [LICENSE](https://github.com/nervosys/IronShell/blob/master/LICENSE) file.

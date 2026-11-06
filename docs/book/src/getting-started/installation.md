@@ -25,8 +25,8 @@ This installs two binaries:
 For the latest development version:
 
 ```bash
-git clone https://github.com/nervosys/AetherShell.git
-cd AetherShell
+git clone https://github.com/nervosys/IronShell.git
+cd IronShell
 cargo build --release
 
 # Add to PATH
@@ -36,24 +36,24 @@ cp target/release/aimodel ~/.local/bin/
 
 ## Pre-built Binaries
 
-Download pre-built binaries from the [releases page](https://github.com/nervosys/AetherShell/releases):
+Download pre-built binaries from the [releases page](https://github.com/nervosys/IronShell/releases):
 
 ### macOS
 
 ```bash
 # Intel Mac
-curl -LO https://github.com/nervosys/AetherShell/releases/latest/download/ironshell-x86_64-apple-darwin.tar.gz
+curl -LO https://github.com/nervosys/IronShell/releases/latest/download/ironshell-x86_64-apple-darwin.tar.gz
 tar xzf ironshell-x86_64-apple-darwin.tar.gz
 
 # Apple Silicon
-curl -LO https://github.com/nervosys/AetherShell/releases/latest/download/ironshell-aarch64-apple-darwin.tar.gz
+curl -LO https://github.com/nervosys/IronShell/releases/latest/download/ironshell-aarch64-apple-darwin.tar.gz
 tar xzf ironshell-aarch64-apple-darwin.tar.gz
 ```
 
 ### Linux
 
 ```bash
-curl -LO https://github.com/nervosys/AetherShell/releases/latest/download/ironshell-x86_64-unknown-linux-gnu.tar.gz
+curl -LO https://github.com/nervosys/IronShell/releases/latest/download/ironshell-x86_64-unknown-linux-gnu.tar.gz
 tar xzf ironshell-x86_64-unknown-linux-gnu.tar.gz
 ```
 
