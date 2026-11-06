@@ -36,7 +36,11 @@ if (!dataDir) {
     console.error('usage: e7.mjs <datadir> [--replay | --provider <name>] [--model M] [--seeds N]');
     process.exit(2);
 }
-const ORACLE = oracleFor(dataDir);
+// Amendment 3: a question the corpus cannot answer unambiguously is excluded
+// from the run, named, and recorded, rather than the whole run refusing.
+const ORACLE = oracleFor(dataDir, { excludeTied: true });
+const EXCLUDED = ORACLE.excluded;
+const RUN_QUESTIONS = Object.entries(QUESTIONS).filter(([q]) => !(q in EXCLUDED));
 
 // ── arms ────────────────────────────────────────────────────────────────
 //
@@ -301,8 +305,11 @@ if (!ACTIVE.length) {
     process.exit(2);
 }
 
+for (const [q, why] of Object.entries(EXCLUDED)) {
+    console.log('excluded, not scored (Amendment 3): ' + q + ' -- ' + why);
+}
 const rows = [];
-for (const [q, question] of Object.entries(QUESTIONS)) {
+for (const [q, question] of RUN_QUESTIONS) {
     for (const arm of shuffle([...ACTIVE])) {
         for (let seed = 0; seed < seeds; seed++) {
             let command = null;
@@ -336,6 +343,7 @@ console.log('');
 const outFile = path.join(dataDir, 'e7-' + hash + '.json');
 fs.writeFileSync(outFile, JSON.stringify(
     { prompts: hash, provider, model, temperature, seeds, corpus: corpusFacts(dataDir),
+        excluded: EXCLUDED,
         skipped: MISSING.map((a) => ({ arm: a.id, needs: a.bin })), rows }, null, 2));
 
 const pad = (s, n) => String(s).padEnd(n);

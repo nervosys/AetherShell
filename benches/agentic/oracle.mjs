@@ -19,7 +19,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export function oracleFor(dataDir) {
+// `excludeTied`: E7 Amendment 3. On a tied corpus q4 is answered `null`, and
+// `excluded.q4` says why, instead of the whole oracle refusing. E1 (run.mjs)
+// keeps the refusal.
+export function oracleFor(dataDir, { excludeTied = false } = {}) {
     const recs = JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8'));
     const prs = recs.filter((r) => r.is_pr);
     const issues = recs.filter((r) => !r.is_pr);
@@ -32,19 +35,21 @@ export function oracleFor(dataDir) {
     for (const r of prs) byAuthor.set(r.user, (byAuthor.get(r.user) ?? 0) + 1);
     const top = Math.max(...byAuthor.values());
     const leaders = [...byAuthor].filter(([, n]) => n === top).map(([u]) => u);
+    let tie = null;
     if (leaders.length !== 1) {
-        throw new Error(`q4 is ambiguous on this corpus: ${leaders.join(', ')} each opened ${top} PRs`);
+        tie = `q4 is ambiguous on this corpus: ${leaders.join(', ')} each opened ${top} PRs`;
+        if (!excludeTied) throw new Error(tie);
     }
 
     const openIssueComments = issues.filter(open).map((r) => r.comments);
     const mean = openIssueComments.reduce((a, b) => a + b, 0) / openIssueComments.length;
     const issueAuthors = new Set(issues.map((r) => r.user));
 
-    return {
+    const answers = {
         q1: String(recs.filter((r) => open(r) && `${r.title} ${r.body}`.toLowerCase().includes('security')).length),
         q2: String(prs.length),
         q3: String(recs.filter((r) => r.state === 'closed').reduce((a, r) => a + r.comments, 0)),
-        q4: `${leaders[0]} ${top}`,
+        q4: tie ? null : `${leaders[0]} ${top}`,
         q5: issues.filter((r) => open(r) && r.comments > 5).map((r) => r.number).sort((a, b) => a - b).join(','),
         q6: String(new Set(recs.flatMap((r) => r.labels)).size),
         q7: String(recs.filter((r) => open(r) && r.labels.includes('bug')).length),
@@ -52,6 +57,9 @@ export function oracleFor(dataDir) {
         q9: String(new Set(prs.map((r) => r.user).filter((u) => issueAuthors.has(u))).size),
         q10: String(Math.round(mean * 100) / 100),
     };
+    // Not enumerable, so callers that walk the answers see only q1..q10.
+    Object.defineProperty(answers, 'excluded', { value: tie ? { q4: tie } : {} });
+    return answers;
 }
 
 // What identifies a fetch well enough to quote next to a result. The corpus

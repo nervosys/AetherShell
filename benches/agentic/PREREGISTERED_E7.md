@@ -196,3 +196,28 @@ prints them), and the report must quote them. The questions, `normalise`, the
 arms, the scoring and the token path are unchanged. q4 now refuses to score a
 corpus on which the top PR author is tied, instead of silently rewarding one
 engine's tie-break.
+
+## Amendment 3 — 2026-11-06, before the first API generation
+
+**A tied q4 is excluded, not a reason to refuse the run.** Amendment 2 made the
+oracle refuse a corpus on which the top PR author is tied. On 2026-11-06 the
+newest 500 cli/cli records tied (`BagToad` and `dependabot[bot]`, 36 PRs each),
+and stayed tied across re-fetches several hours apart, because the repository
+had no new activity. The maintainer chose this amendment over waiting for the
+tie to break or shifting the record window.
+
+**What changes.** When q4 is tied, E7 runs the other nine questions, prints that
+q4 was excluded and why, and records the reason in the result file under
+`excluded`. The headline tier is then 9 × 5 = **45** generations, and each arm
+is scored out of 9. On an untied corpus nothing changes. E1 (`run.mjs`) keeps
+Amendment 2's refusal.
+
+**What does not change:** the prompts and their hash, the corpus definition,
+the other questions, the oracle for them, `normalise`, the arms, the arm-order
+randomisation, temperature, the no-retries rule, the scoring and the token path.
+
+**Disclosure.** No API generation has been made. The informed-subject and
+subagent runs recorded in `results/` (answers written by an agent, scored with
+`--provider file`) predate this amendment and were scored on untied corpora;
+they are not the pre-registered result. This amendment was written after
+seeing only the corpus facts and the tie, not any model output on it.
