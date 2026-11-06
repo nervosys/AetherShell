@@ -402,6 +402,18 @@ fn aimodel(home: &std::path::Path) -> std::process::Command {
         .env("HOME", home)
         .env("APPDATA", home.join("appdata"))
         .env("IRONSHELL_SESSION_DIR", home.join("session"));
+    // The binary reads provider keys from the environment; a developer's real
+    // keys must not reach a test run.
+    for (name, _) in std::env::vars_os() {
+        let upper = name.to_string_lossy().to_ascii_uppercase();
+        if upper.ends_with("_API_KEY")
+            || upper.ends_with("_TOKEN")
+            || upper.starts_with("IRONGATE_")
+            || upper.starts_with("AIMODEL_")
+        {
+            cmd.env_remove(&name);
+        }
+    }
     cmd
 }
 
