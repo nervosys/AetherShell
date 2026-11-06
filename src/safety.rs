@@ -2900,9 +2900,11 @@ fn judged_forms(path: &str) -> Option<Vec<String>> {
             .trim_end_matches('/')
             .to_ascii_lowercase()
     };
-    let mut forms = vec![norm(resolve_for_jail(path)?)];
+    let jail = norm(resolve_for_jail(path)?);
     #[cfg(windows)]
-    forms.push(norm(resolve_walked(win32_path(path))?));
+    let forms = vec![jail, norm(resolve_walked(win32_path(path))?)];
+    #[cfg(not(windows))]
+    let forms = vec![jail];
     Some(forms)
 }
 
