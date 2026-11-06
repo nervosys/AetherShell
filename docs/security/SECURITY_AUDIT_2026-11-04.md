@@ -206,11 +206,13 @@ Risks that remain, and why:
   names would orphan existing sessions.
 - **Generated tokens are still printed at startup.** That is how an operator gets them,
   and a parent process capturing stdout will see them.
-- **A false refusal remains:** `<ws>/.ironshell/../notes.txt` is refused as if it were in
-  the audit directory. It fails closed.
+- **A false refusal remains:** `<ws>/x/.git/../notes` is refused as git control, because
+  that check still matches the path as spelled. It fails closed. The same refusal for
+  `.ironshell/../notes.txt` was fixed on 2026-11-06.
 
-Also found, not a security problem: the MCP HTTP `curl` tool passes values as bare
-arguments rather than mapping them to flags, so it fails on ordinary calls.
+Also found, not a security problem, and fixed on 2026-11-06: the MCP HTTP `curl` tool
+passed values as bare arguments, so ordinary calls failed. It now maps them to flags and
+takes only HTTP(S) URLs.
 
 ## Gaps
 
@@ -218,5 +220,9 @@ arguments rather than mapping them to flags, so it fails on ordinary calls.
   check and was not retried. The workflow's Secret Scanning job passed.
 - No reproduction on Windows or macOS.
 - `aimodel`, marketplace and the items marked "not run" rest on code reading as
-  findings. Their fixes have tests, except `aimodel`'s redirect hops and key output, and
-  the VS Code changes, which were not compiled locally.
+  findings. Their fixes have tests, except the VS Code changes, which were not compiled
+  locally. Tests for `aimodel`'s redirect hops and key output were added on 2026-11-06.
+  `aimodel keys` uses the OS credential store and is not tested.
+- AS-2026-28 said `aimodel` printed key prefixes. On reading the code again, the 8-character
+  prefix is kept in the serialized key record, and no print statement shows it.
+  Whether any route returns that record was not checked.
