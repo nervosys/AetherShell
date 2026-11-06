@@ -7,8 +7,8 @@
 class Ironshell < Formula
   desc "AI-powered typed shell with functional pipelines and multi-agent support"
   homepage "https://github.com/nervosys/IronShell"
-  url "https://github.com/nervosys/IronShell/archive/refs/tags/v12.0.2.tar.gz"
-  sha256 "77c274507784bcf89b576fbcfb0f649242f85292b3ee5202604506ddda247e4e"
+  url "https://github.com/nervosys/IronShell/archive/refs/tags/v14.0.0.tar.gz"
+  sha256 "1482c89ddc10729e9331432f4b936e11bbb496cde63e52dd629422317326a340"
   license "AGPL-3.0-or-later"
   head "https://github.com/nervosys/IronShell.git", branch: "master"
 
