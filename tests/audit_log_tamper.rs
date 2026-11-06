@@ -165,6 +165,76 @@ fn ordinary_workspace_writes_are_unaffected() {
 }
 
 #[test]
+fn a_dot_dot_that_leaves_the_audit_directory_is_allowed() {
+    // `.ironshell/../notes.txt` names `<ws>/notes.txt`, which is ordinary
+    // workspace. The check must judge where the path resolves, not the spelling:
+    // refusing it on its prefix was a false refusal that failed closed.
+    let _g = lock();
+    let ws = Ws::new("dotdot_ok");
+    let f = ws.root.join("notes.txt");
+    let spelled = ws.root.join(".ironshell").join("..").join("notes.txt");
+
+    let r = call(
+        "file_write",
+        vec![
+            Value::Str(spelled.to_string_lossy().into_owned()),
+            Value::Str("hello".into()),
+        ],
+    );
+    assert!(
+        r.is_ok(),
+        "a write that resolves to the workspace must work: {r:?}"
+    );
+    assert_eq!(std::fs::read_to_string(&f).unwrap_or_default(), "hello");
+}
+
+#[test]
+fn every_spelling_that_resolves_into_the_audit_directory_is_refused() {
+    // The three refused forms from the audit doc: direct, through a directory
+    // that does not exist, and through a `..` that returns to the log. The log
+    // keeps its existing entries and never takes the caller's content.
+    let _g = lock();
+    let ws = Ws::new("dotdot_refused");
+    let log = ws.root.join(".ironshell").join("audit.log");
+    std::fs::write(&log, "seed\n").expect("seed the log");
+
+    let spellings = [
+        ws.root.join(".ironshell").join("audit.log"),
+        ws.root
+            .join(".ironshell")
+            .join("x")
+            .join("..")
+            .join("audit.log"),
+        ws.root
+            .join(".ironshell")
+            .join("..")
+            .join(".ironshell")
+            .join("audit.log"),
+    ];
+    for spelled in spellings {
+        let r = call(
+            "file_write",
+            vec![
+                Value::Str(spelled.to_string_lossy().into_owned()),
+                Value::Str("forged\n".into()),
+            ],
+        );
+        assert!(r.is_err(), "must be refused: {}: {r:?}", spelled.display());
+        let after = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            after.starts_with("seed\n"),
+            "existing entries must survive {}: got {after:?}",
+            spelled.display()
+        );
+        assert!(
+            !after.contains("forged"),
+            "the refused content must not land via {}: got {after:?}",
+            spelled.display()
+        );
+    }
+}
+
+#[test]
 fn the_predicate_is_exact_about_what_it_claims() {
     // A check on the check. `is_audit_artifact` compares against the *active*
     // audit path, so with auditing off it must match nothing — otherwise it

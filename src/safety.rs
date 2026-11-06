@@ -2832,23 +2832,35 @@ pub fn is_audit_artifact(path: &str) -> bool {
     if p.trim_end_matches('/').is_empty() {
         return false;
     }
-    let candidates = audit_forms(Path::new(path));
-    let hit = |target: &Path| {
-        let forms = audit_forms(target);
-        candidates.iter().any(|c| forms.contains(c)) || same_existing_file(Path::new(path), target)
-    };
     // The append-only sink is evidence too. It is normally outside the
     // workspace — that is the point of it — but nothing forces that, and a
     // sink placed inside the jail would otherwise be an ordinary writable
     // file that any `file.write` could clobber.
-    if let Some(sink) = std::env::var_os("IRONSHELL_AUDIT_SINK") {
-        let sink = PathBuf::from(sink);
-        if !sink.as_os_str().is_empty() && hit(&sink) {
+    let sink = std::env::var_os("IRONSHELL_AUDIT_SINK")
+        .map(PathBuf::from)
+        .filter(|s| !s.as_os_str().is_empty());
+    let log = audit_path();
+    if sink.is_none() && log.is_none() {
+        return false;
+    }
+    // Judged where the path resolves, not as it is spelled: `.ironshell/../x`
+    // is the workspace, and matching its prefix refused it (a false refusal
+    // that failed closed). A path that will not resolve is refused, because
+    // nothing can then say where it lands.
+    let Some(candidates) = judged_forms(path) else {
+        return true;
+    };
+    let hit = |target: &Path| {
+        let forms = audit_forms(target);
+        candidates.iter().any(|c| forms.contains(c)) || same_existing_file(Path::new(path), target)
+    };
+    if let Some(sink) = &sink {
+        if hit(sink) {
             return true;
         }
     }
 
-    match audit_path() {
+    match log {
         Some(log) => {
             if hit(&log) {
                 return true;
@@ -2873,6 +2885,25 @@ pub fn is_audit_artifact(path: &str) -> bool {
         }
         None => false,
     }
+}
+
+/// Where `path` lands, as strings comparable with [`audit_forms`]: lowercased,
+/// `/` separators, symlinks and `..` resolved. That is the reading the jail
+/// judges ([`resolve_for_jail`]). On Windows the Win32 reading is judged too,
+/// since it removes `..` as text before the file system sees the path, so a
+/// path must stay clear of the audit directory under both. `None` when either
+/// reading cannot be resolved; the callers then refuse.
+fn judged_forms(path: &str) -> Option<Vec<String>> {
+    let norm = |p: PathBuf| {
+        p.to_string_lossy()
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+    };
+    let mut forms = vec![norm(resolve_for_jail(path)?)];
+    #[cfg(windows)]
+    forms.push(norm(resolve_walked(win32_path(path))?));
+    Some(forms)
 }
 
 /// The spellings of `path` that [`is_audit_artifact`] compares: the lexical
@@ -2932,7 +2963,11 @@ pub fn is_governance_file(path: &str) -> bool {
     if path.replace('\\', "/").trim_end_matches('/').is_empty() {
         return false;
     }
-    let candidates = audit_forms(Path::new(path));
+    // Judged where it resolves, and refused when it will not resolve (see
+    // `is_audit_artifact`).
+    let Some(candidates) = judged_forms(path) else {
+        return true;
+    };
     let names = |target: &Path| {
         let forms = audit_forms(target);
         candidates.iter().any(|c| forms.contains(c)) || same_existing_file(Path::new(path), target)
