@@ -108,6 +108,15 @@ fn uniq_is_described_as_adjacent_only_and_points_to_unique() {
     }
 }
 
+#[test]
+fn math_sqrt_with_three_arguments_says_at_most_one_not_zero() {
+    // sqrt takes its subject as the one argument. The bound must count it.
+    let (code, text) = agent_run("math.sqrt(1,2,3)");
+    assert_eq!(code, 64, "{text}");
+    assert!(text.contains("at most 1 argument(s)"), "{text}");
+    assert!(!text.contains("at most 0"), "{text}");
+}
+
 /// Run `ish --agent -c <src>` in a scratch directory and return (exit, stdout+stderr).
 fn agent_run(src: &str) -> (i32, String) {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("agent_error_semantics");

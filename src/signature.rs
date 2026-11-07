@@ -14575,10 +14575,18 @@ pub fn validate(name: &str, args: &[Value], input: Option<&Value>) -> anyhow::Re
     // bound to check.
     let variadic = sig.params.iter().position(|p| p.variadic);
     if variadic.is_none() && supplied > sig.params.len() {
+        // The bound counts what the caller wrote. A subject passed as the first
+        // argument is one of those arguments, so `sqrt(1, 2, 3)` may take one
+        // argument, not zero: the parameter list is empty and the subject is the
+        // one argument it takes.
         return Err(crate::safety::bad_arg(
             name,
-            &format!("at most {} argument(s): {}", sig.params.len(), sig.render()),
-            &format!("{supplied}"),
+            &format!(
+                "at most {} argument(s): {}",
+                sig.params.len() + params_start,
+                sig.render()
+            ),
+            &format!("{}", args.len()),
         ));
     }
 
