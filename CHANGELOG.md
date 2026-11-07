@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `undo` after creating a file removes it, including a bare filename (`a1.txt`) and the destinations of `file_append`, `save_json` and `file_copy`. In 14.0.0 no step was recorded, so `undo` reverted an older, unrelated step.
 - A `file_patch` or `file_replace` that matches nothing no longer rewrites the file or leaves a journal step, so `undo` no longer reports a restore that did not happen.
 - AGENTS.md and README: the shell-transpiler examples run as written; the PowerShell transpiler's gaps and `uniq`'s adjacent-only behaviour are stated.
+- Agent errors: E_UNKNOWN_BUILTIN is retryable only when `did_you_mean` offers a real name; E_OUTSIDE_WORKSPACE is not retryable, and its hint names the workspace root instead of telling the agent to set `IRONSHELL_WORKSPACE` (widening is the operator's decision); a zero divisor is E_BAD_ARG, not retryable, with a hint about the value rather than the argument count.
+- Calling a name that no builtin serves (`exec("x")`) is E_UNKNOWN_BUILTIN, not E_NEEDS_APPROVAL. Served builtins are gated as before.
+- `did_you_mean` offers the module spelling first: `file_read` suggests `file.read`, not `file_rename`.
+- `uniq` is described as removing adjacent duplicates only, as Unix `uniq` does, and points to `unique`/`arr.unique`. Its behaviour is unchanged.
+- Arity errors count the piped subject: `math.sqrt(1,2,3)` says "at most 1", not "at most 0".
+- A parse error at end of input names the last line with content: a one-line script no longer reports line 2.
+- A missing path's hint names the directory relative paths resolve against, instead of telling the agent to list identifiers.
+- With `--workspace`, a POSIX `cd` out of the workspace is refused, so `pwd` and where relative writes land agree. (Pinned mode without `--workspace` still allows the `cd` and refuses the write.)
 
 ## [14.0.0] - 2026-11-06
 
