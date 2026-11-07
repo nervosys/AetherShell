@@ -370,6 +370,15 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "governor_status"
         | "sess_usage"
         | "session_id" => Some(Effect::ReadLocal),
+        // Stated Pure until pure-audit-3, which read each body. ReadLocal:
+        // from-json and from_json stat their input (Path::is_file) when it does
+        // not parse as JSON, and the sha256, md5, crypto_sign and
+        // crypto_verify_signature bodies read IRONSHELL_FIPS (safety::fips_enabled,
+        // through require_fips_hash and digital_signatures::policy). Each alias
+        // group is listed whole.
+        "from-json" | "from_json" | "sha256" | "md5" | "crypto_sign" | "crypto_verify_signature" => {
+            Some(Effect::ReadLocal)
+        }
         // WriteLocal: changes an in-process table (session store, caches, the
         // MCP cache, a counter) or the journal directory. A process-memory
         // change is not restored by a rollback, so these are HARMLESS in

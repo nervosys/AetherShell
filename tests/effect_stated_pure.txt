@@ -66,8 +66,6 @@ contains
 crossover_strategy
 crypto_hex_decode
 crypto_hex_encode
-crypto_sign
-crypto_verify_signature
 cut
 cut_columns
 dbg
@@ -99,10 +97,8 @@ floor
 foreach
 foreach-object
 from-csv
-from-json
 from-yaml
 from_csv
-from_json
 from_yaml
 group
 group-object
@@ -152,7 +148,6 @@ mcp_resources
 mcp_server
 mcp_server_start
 mcp_tools
-md5
 mean
 measure
 measure-object
@@ -230,7 +225,6 @@ search_similar
 select
 select-object
 selection_strategy
-sha256
 sleep
 slice
 sort

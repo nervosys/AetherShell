@@ -256,9 +256,9 @@ crypto_password_hash	ReadLocal
 crypto_password_verify	ReadLocal
 crypto_random_bytes	ReadLocal
 crypto_random_string	ReadLocal
-crypto_sign	Pure
+crypto_sign	ReadLocal
 crypto_uuid	ReadLocal
-crypto_verify_signature	Pure
+crypto_verify_signature	ReadLocal
 curl	Network
 cut	Pure
 cut_columns	Pure
@@ -424,10 +424,10 @@ floor	Pure
 foreach	Pure
 foreach-object	Pure
 from-csv	Pure
-from-json	Pure
+from-json	ReadLocal
 from-yaml	Pure
 from_csv	Pure
-from_json	Pure
+from_json	ReadLocal
 from_yaml	Pure
 fs_chmod	WriteLocal
 fs_chown	WriteLocal
@@ -722,7 +722,7 @@ mcp_server	Pure
 mcp_server_start	Pure
 mcp_servers	Network
 mcp_tools	Pure
-md5	Pure
+md5	ReadLocal
 mean	Pure
 measure	Pure
 measure-object	Pure
@@ -1161,7 +1161,7 @@ session_start	WriteLocal
 session_undo	WriteLocal
 set_env	WriteLocal
 sh	Exec
-sha256	Pure
+sha256	ReadLocal
 shell	Exec
 shellcheck	ReadLocal
 shellcheck_check	ReadLocal
