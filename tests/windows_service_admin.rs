@@ -315,3 +315,56 @@ fn delete_refuses_a_service_without_the_marker_and_leaves_it_alone() {
     );
     assert!(exists(&service), "the hand-written service was removed");
 }
+
+/// restart "always" sets three restart actions, one second apart, with the
+/// non-crash flag on, and a 24-hour reset period. sc.exe is the oracle: `qfailure`
+/// lists the actions and `qfailureflag` shows the flag.
+#[test]
+#[ignore = "disposable Windows host only: set AE_DISPOSABLE_HOST=1"]
+fn restart_always_sets_restart_actions_and_the_noncrash_flag() {
+    if !disposable() {
+        return;
+    }
+    let name = format!("ci-always-{}", std::process::id());
+    let service = format!("ironshell-{name}");
+    let _cleanup = Cleanup(vec![service.clone()]);
+    let mut env = Env::default();
+
+    call(
+        "svc_create",
+        vec![s(&name), argv(&[CMD]), record(&[("restart", s("always"))])],
+        &mut env,
+    )
+    .unwrap();
+
+    let (code, actions) = sc(&["qfailure", &service]);
+    assert_eq!(code, Some(0), "{actions}");
+    let restarts = actions.matches("RESTART").count();
+    assert_eq!(restarts, 3, "expected three RESTART actions:\n{actions}");
+    assert!(
+        actions.contains("Delay = 1000 milliseconds"),
+        "expected a 1000 ms delay:\n{actions}"
+    );
+    let reset_line = actions
+        .lines()
+        .find(|line| line.contains("RESET_PERIOD"))
+        .unwrap_or("");
+    assert!(
+        reset_line.trim_end().ends_with(": 86400"),
+        "expected a 86400 s reset period, got {reset_line:?}"
+    );
+
+    let (code, flag_out) = sc(&["qfailureflag", &service]);
+    assert_eq!(code, Some(0), "{flag_out}");
+    let flag_line = flag_out
+        .lines()
+        .find(|line| line.contains("FAILURE_ACTIONS_ON_NONCRASH_FAILURES"))
+        .unwrap_or("");
+    assert!(
+        flag_line.trim_end().ends_with("TRUE"),
+        "expected the non-crash flag TRUE, got {flag_out:?}"
+    );
+
+    call("svc_delete", vec![s(&name)], &mut env).unwrap();
+    assert!(!exists(&service), "sc query still finds {service}");
+}

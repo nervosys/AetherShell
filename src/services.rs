@@ -739,6 +739,10 @@ mod scm {
     const STOP_WAIT: Duration = Duration::from_secs(30);
     /// Delay before each of the three restarts that `restart: "on-failure"` sets.
     const RESTART_DELAY_MS: u32 = 60_000;
+    /// Delay before each of the three restarts that `restart: "always"` sets. The
+    /// Linux unit sets no RestartSec, so systemd's default applies there; the
+    /// same 1000 ms is used here.
+    const ALWAYS_RESTART_DELAY_MS: u32 = 1_000;
     /// The failure count starts again after a day without a failure.
     const RESET_PERIOD_SECS: u32 = 86_400;
 
@@ -1025,10 +1029,18 @@ mod scm {
             SERVICE_CONFIG_DESCRIPTION,
             (&mut info as *mut ServiceDescriptionW).cast(),
         )?;
-        if spec.restart == "on-failure" {
+        // "always" and "on-failure" both set the actions and the flag below; they
+        // differ in the delay. On Windows "always" still means restart on any
+        // failure, because the SCM never restarts a service that stops cleanly.
+        if spec.restart == "on-failure" || spec.restart == "always" {
+            let delay_ms = if spec.restart == "always" {
+                ALWAYS_RESTART_DELAY_MS
+            } else {
+                RESTART_DELAY_MS
+            };
             let mut actions = [ScAction {
                 kind: SC_ACTION_RESTART,
-                delay_ms: RESTART_DELAY_MS,
+                delay_ms,
             }; 3];
             let mut failure = ServiceFailureActionsW {
                 reset_period: RESET_PERIOD_SECS,
@@ -1044,7 +1056,8 @@ mod scm {
                 SERVICE_CONFIG_FAILURE_ACTIONS,
                 (&mut failure as *mut ServiceFailureActionsW).cast(),
             )?;
-            // A non-zero exit is a failure as well, as `on-failure` means on Linux.
+            // A non-zero exit is a failure as well, as on-failure and always mean on
+            // Linux. Without this flag the actions run only after a crash.
             let mut flag = ServiceFailureFlag {
                 on_non_crash_failures: 1,
             };
@@ -1083,13 +1096,6 @@ mod scm {
 
     pub(super) fn create(spec: CreateSpec) -> Result<Value> {
         const BUILTIN: &str = "svc_create";
-        if spec.restart == "always" {
-            return Err(crate::safety::unimplemented(
-                BUILTIN,
-                "restart \"always\" would also restart after a clean exit, which the Windows service control manager cannot do; NOTHING WAS CHANGED",
-                "use restart \"on-failure\" or \"no\"",
-            ));
-        }
         let service = format!("{UNIT_PREFIX}{}", spec.name);
         check_executable(&spec.argv[0])?;
         if let Some(user) = &spec.user {
