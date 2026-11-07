@@ -20404,10 +20404,28 @@ fn bi_undo(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             .map_err(|_| crate::safety::bad_arg("undo", "a step count", "a non-integer"))?
             .max(0) as usize,
     };
+    refuse_unless_recording("undo")?;
     Ok(Value::Record(rewind_record(
         &crate::journal::undo(n),
         "restored",
     )))
+}
+
+/// Refuse an undo or a redo when the journal is not recording in this session.
+///
+/// The journal records a write only in agent mode or with IRONSHELL_JOURNAL=on.
+/// In a human session nothing was recorded, so `undo()` answered
+/// `complete: true` with nothing restored, and the file kept the write it was
+/// meant to reverse. That reads as success. The refusal names the switch.
+fn refuse_unless_recording(builtin: &str) -> Result<()> {
+    if crate::journal::enabled() {
+        return Ok(());
+    }
+    Err(crate::safety::bad_state_with_hint(
+        builtin,
+        "the journal is not recording in this session, so no write was recorded and there is nothing to undo or redo",
+        "start the shell with --agent (or set IRONSHELL_MODE=agent), or set IRONSHELL_JOURNAL=on before the writes you want to reverse; a write made while it is off is not recorded",
+    ))
 }
 
 /// The record shared by `undo` and `session_redo`: one count per outcome, the
@@ -51827,6 +51845,7 @@ fn bi_session_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// `session_undo(n = 1)` — the same record `undo(n)` returns.
 fn bi_session_undo(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let n = step_count_arg("session_undo", &args, &input)?;
+    refuse_unless_recording("session_undo")?;
     Ok(Value::Record(rewind_record(
         &crate::journal::undo(n),
         "restored",
@@ -51836,6 +51855,7 @@ fn bi_session_undo(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// `session_redo(n = 1)` — re-apply the last `n` undone steps.
 fn bi_session_redo(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let n = step_count_arg("session_redo", &args, &input)?;
+    refuse_unless_recording("session_redo")?;
     Ok(Value::Record(rewind_record(
         &crate::journal::redo(n),
         "reapplied",

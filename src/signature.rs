@@ -13379,7 +13379,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt_range("steps", Ty::Int, 0, i64::MAX, "how many of the most recent recorded steps to put back, default 1")],
         returns: "Record",
-        doc: "Put back what the last steps overwrote, reporting each step and whether all of them were restored. Steps that cannot be reversed are listed, not hidden. A step whose restore fails stays in the journal and stops the undo, so it can be retried.",
+        doc: "Put back what the last steps overwrote, reporting each step and whether all of them were restored. Steps that cannot be reversed are listed, not hidden. A step whose restore fails stays in the journal and stops the undo, so it can be retried. Writes are recorded only in agent mode (--agent, or IRONSHELL_MODE=agent) or with IRONSHELL_JOURNAL=on; in a human session undo is refused with E_BAD_STATE, because nothing was recorded to put back.",
         examples: &[
             (r#"(try { undo("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { undo(-1) } catch e { e.error.code })"#, "E_BAD_ARG"),
