@@ -71,7 +71,8 @@ tools = get_agent_api_tools("http://localhost:3002")
 `ish -b` (and `.sh` files) run the ordinary POSIX subset **in-process**
 (`src/posix.rs`): pipelines, `&&`/`||`, variables, `$(…)`, redirections,
 `if`/`for`/`while`, `test`, and GNU-compatible `ls`/`find`/`grep`/`head`/`tail`/
-`wc`/`sort`/`uniq`/`cut`/`sed`/`cat`/`echo`/`printf`. Other commands run as the
+`wc`/`sort`/`uniq`/`cut`/`sed`/`cat`/`echo`/`printf` (the common GNU flags, not all: `ls` takes `-a` but not `-l`;
+an unsupported flag falls back as below). Other commands run as the
 real program, directly, through the effect gate — never via `bash -c` — so
 agent mode gates each one. On E6 (`benches/agentic/bashcompat.mjs`), 32 of 32
 matched bash byte-for-byte, and 32 of 32 on a held-out corpus.
