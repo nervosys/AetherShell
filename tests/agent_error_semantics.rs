@@ -81,6 +81,33 @@ fn outside_workspace_hint_names_the_root_and_never_tells_the_agent_to_widen() {
     assert_eq!(safety::outside_workspace_hint(), hint);
 }
 
+#[test]
+fn uniq_is_described_as_adjacent_only_and_points_to_unique() {
+    // uniq removes adjacent duplicates only (like Unix uniq). The description
+    // must say so and name the all-duplicates builtin. Behaviour is unchanged.
+    let sig = iron_shell::signature::signature_of("uniq").expect("uniq has a signature");
+    assert!(sig.doc.contains("ADJACENT"), "{}", sig.doc);
+    assert!(
+        sig.doc.contains("arr.unique") && sig.doc.contains("unique"),
+        "{}",
+        sig.doc
+    );
+    assert!(
+        !sig.doc.contains("Remove duplicate elements."),
+        "{}",
+        sig.doc
+    );
+    // Behaviour: adjacent only, so the second 1 survives.
+    let prog = parse_program("[1, 1, 2, 1] | uniq").expect("parse");
+    let v = eval_program(&prog, &mut Env::new()).expect("eval");
+    match v {
+        iron_shell::value::Value::Array(a) => {
+            assert_eq!(a.len(), 3, "uniq must stay adjacent-only")
+        }
+        other => panic!("uniq returned {other:?}, not an Array"),
+    }
+}
+
 /// Run `ish --agent -c <src>` in a scratch directory and return (exit, stdout+stderr).
 fn agent_run(src: &str) -> (i32, String) {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("agent_error_semantics");

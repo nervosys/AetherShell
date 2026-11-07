@@ -54,7 +54,7 @@ const BUILTINS: &[(&str, &str, &str)] = &[
     ("flatten", "flatten()", "Flatten nested arrays"),
     ("reverse", "reverse()", "Reverse an array"),
     ("sort", "sort()", "Sort an array"),
-    ("uniq", "uniq()", "Remove duplicate elements"),
+    ("uniq", "uniq()", "Remove adjacent duplicate elements (use unique for all)"),
     ("zip", "zip(other_array)", "Zip two arrays together"),
     ("range", "range(start, end)", "Generate a range of integers"),
     ("slice", "slice(start, end)", "Get a slice of an array"),

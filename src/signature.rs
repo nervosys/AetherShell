@@ -2772,7 +2772,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Sequence),
         params: &[],
         returns: "Array",
-        doc: "Remove duplicate elements. Pipeline only.",
+        doc: "Remove ADJACENT duplicate elements, like Unix uniq: [1, 1, 2, 1] keeps the second 1. For every duplicate, not only neighbours, use unique or arr.unique. Pipeline only.",
         examples: &[("[1, 1, 2] | uniq | len", "2")],
     },
     Signature {
