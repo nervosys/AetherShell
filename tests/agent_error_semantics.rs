@@ -117,6 +117,25 @@ fn math_sqrt_with_three_arguments_says_at_most_one_not_zero() {
     assert!(!text.contains("at most 0"), "{text}");
 }
 
+#[test]
+fn an_error_at_end_of_input_names_the_last_line_with_content() {
+    // A trailing newline must not move the report onto a line that is not there.
+    let cases = [
+        ("x = (1 +", "line 1,"),
+        ("x = (1 +\n", "line 1,"),
+        ("x = (1 +\n\n\n", "line 1,"),
+        ("a = 1\nb = 2\nc = (3 +\n", "line 3,"),
+    ];
+    for (src, want) in cases {
+        let err = parse_program(src).expect_err(src).to_string();
+        assert!(err.contains(want), "{src:?}: expected {want} in {err}");
+        assert!(
+            !err.contains("line 2,"),
+            "{src:?} reported a line past the source: {err}"
+        );
+    }
+}
+
 /// Run `ish --agent -c <src>` in a scratch directory and return (exit, stdout+stderr).
 fn agent_run(src: &str) -> (i32, String) {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("agent_error_semantics");

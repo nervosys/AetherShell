@@ -931,13 +931,33 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
         }
     }
 
+    let (eof_line, eof_col) = eof_position(src, line, col);
     out.push(Spanned {
         kind: Tok::Eof,
         text: String::new(),
-        line,
-        col,
+        line: eof_line,
+        col: eof_col,
     });
     Ok(out)
+}
+
+/// Where end of input is reported. After a trailing newline the lexer stands at
+/// column 1 of the line after the last one, so an error at end of input named a
+/// line that does not exist: a one-line script reported line 2. End of input is
+/// placed just after the last line that has content instead.
+fn eof_position(src: &str, line: usize, col: usize) -> (usize, usize) {
+    if col != 1 || line == 1 {
+        return (line, col);
+    }
+    match src
+        .lines()
+        .enumerate()
+        .filter(|(_, text)| !text.trim().is_empty())
+        .last()
+    {
+        Some((index, text)) => (index + 1, text.chars().count() + 1),
+        None => (line, col),
+    }
 }
 
 fn is_ident_start(c: char) -> bool {
