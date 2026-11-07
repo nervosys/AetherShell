@@ -276,27 +276,28 @@ fn the_streaming_path_appends_no_more_than_the_eager_one() {
 fn a_pure_stage_from_the_fallback_half_of_the_dispatcher_short_circuits_too() {
     // `is_effect_free` used to ask `BUILTIN_LOOKUP` alone, which is only half of
     // `builtins::call_with_input_inner`. The ~113 names served by its fallback
-    // `match` — `from_json` among them — therefore read as *unknown*, and a
+    // `match` — `to_string` among them — therefore read as *unknown*, and a
     // `take` downstream of one withheld its short-circuit and read the whole
     // source. That was fail-safe, so it cost work rather than correctness, and it
     // could not be widened until something in `src/` could say what the fallback
-    // served. `builtins::is_dispatched` can.
+    // served. `builtins::is_dispatched` can. (This was aimed at `from_json`
+    // until it became ReadLocal, since `from_json(path)` reads a file.)
     use iron_shell::builtins::{is_dispatched, BUILTIN_LOOKUP};
     use iron_shell::safety::{effect_of, Effect};
     assert!(
-        !BUILTIN_LOOKUP.contains_key("from_json"),
-        "this test is about the fallback half; from_json has moved"
+        !BUILTIN_LOOKUP.contains_key("to_string"),
+        "this test is about the fallback half; to_string has moved"
     );
-    assert!(is_dispatched("from_json"));
+    assert!(is_dispatched("to_string"));
     assert_eq!(
-        effect_of("from_json"),
+        effect_of("to_string"),
         Effect::Pure,
-        "parsing a string is pure; if this changes the test below should be \
+        "rendering a value is pure; if this changes the test below should be \
          re-aimed at another fallback builtin, not loosened"
     );
 
     let (stats, out) =
-        stream_stats("let xs = range(0, 1000); xs | map(fn(x) => from_json(\"[1,2]\")) | take(3)");
+        stream_stats("let xs = range(0, 1000); xs | map(fn(x) => to_string(x)) | take(3)");
     assert_eq!(out.len(), 3);
     assert_eq!(stats.emitted, 3);
     assert!(stats.streamed);
