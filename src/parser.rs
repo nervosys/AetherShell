@@ -370,14 +370,20 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
         }
     }
 
-    // Helper: read number (optionally with a leading '-' already consumed)
+    // Helper: read number (optionally with a leading '-' already consumed).
+    //
+    // Grammar: digits, optional `.digits` fraction, optional exponent
+    // `[eE][+-]?digits` (an exponent makes the literal a Float). A number may
+    // not run straight into an identifier character: `12abc`, `1e`, `1ex` and
+    // `1key` are E_PARSE rather than a number followed by an identifier.
     fn read_number(
         chars: &[char],
         pos: &mut usize,
         line: &mut usize,
         col: &mut usize,
         mut acc: String,
-    ) -> (Tok, String) {
+    ) -> Result<(Tok, String)> {
+        let mut kind = Tok::Int;
         // digits before decimal
         while let Some(ch) = peek(chars, *pos) {
             if ch.is_ascii_digit() {
@@ -401,34 +407,76 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                         break;
                     }
                 }
-                return (Tok::Float, acc);
+                kind = Tok::Float;
+            }
+        }
+        // optional exponent: only when digits follow `e`, optionally signed.
+        // Otherwise the `e` is left in place and the identifier check below
+        // rejects it (`1e`, `1ex`).
+        if matches!(peek(chars, *pos), Some('e') | Some('E')) {
+            let sign_len = match peek_next(chars, *pos) {
+                Some('+') | Some('-') => 1,
+                _ => 0,
+            };
+            let digit_at = *pos + 1 + sign_len;
+            if peek(chars, digit_at).is_some_and(|c| c.is_ascii_digit()) {
+                acc.push('e');
+                advance(chars, pos, line, col);
+                if sign_len == 1 {
+                    if let Some(sign) = peek(chars, *pos) {
+                        acc.push(sign);
+                    }
+                    advance(chars, pos, line, col);
+                }
+                while let Some(ch) = peek(chars, *pos) {
+                    if ch.is_ascii_digit() {
+                        acc.push(ch);
+                        advance(chars, pos, line, col);
+                    } else {
+                        break;
+                    }
+                }
+                kind = Tok::Float;
             }
         }
         // SI suffix on integer literals: 1k / 1M / 1G → scaled Int, in the lexer
         // (Phase 5: terse numeric form lives in the grammar, not a text pre-pass).
-        // Only fires when the char after the suffix isn't alphanumeric/_, so
-        // identifiers like `1key` are unaffected.
-        if let Some(suffix) = peek(chars, *pos) {
-            let mult = match suffix {
-                'k' | 'K' => Some(1_000i64),
-                'M' => Some(1_000_000i64),
-                'G' => Some(1_000_000_000i64),
-                _ => None,
-            };
-            if let Some(m) = mult {
-                let after_ok = match peek_next(chars, *pos) {
-                    Some(c) => !c.is_alphanumeric() && c != '_',
-                    None => true,
+        // The suffix must end the literal; `1key` is rejected by the check below.
+        if kind == Tok::Int {
+            if let Some(suffix) = peek(chars, *pos) {
+                let mult = match suffix {
+                    'k' | 'K' => Some(1_000i64),
+                    'M' => Some(1_000_000i64),
+                    'G' => Some(1_000_000_000i64),
+                    _ => None,
                 };
-                if after_ok {
-                    if let Ok(n) = acc.parse::<i64>() {
-                        advance(chars, pos, line, col); // consume the suffix
-                        return (Tok::Int, n.saturating_mul(m).to_string());
+                if let Some(m) = mult {
+                    let after_ok = match peek_next(chars, *pos) {
+                        Some(c) => !is_ident_part(c),
+                        None => true,
+                    };
+                    if after_ok {
+                        if let Ok(n) = acc.parse::<i64>() {
+                            advance(chars, pos, line, col); // consume the suffix
+                            return Ok((Tok::Int, n.saturating_mul(m).to_string()));
+                        }
                     }
                 }
             }
         }
-        (Tok::Int, acc)
+        if let Some(next) = peek(chars, *pos) {
+            if is_ident_part(next) {
+                return Err(anyhow!(
+                    "malformed number: '{}' is followed by '{}' at line {}, column {}; \
+                     separate them with a space, or write a valid exponent such as 1e10",
+                    acc,
+                    next,
+                    line,
+                    col
+                ));
+            }
+        }
+        Ok((kind, acc))
     }
 
     while let Some(c) = peek(&chars, pos) {
@@ -649,7 +697,7 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                 if let Some(d) = peek(&chars, pos) {
                     if d.is_ascii_digit() {
                         let (kind, text) =
-                            read_number(&chars, &mut pos, &mut line, &mut col, "-".to_string());
+                            read_number(&chars, &mut pos, &mut line, &mut col, "-".to_string())?;
                         out.push(Spanned {
                             kind,
                             text,
@@ -764,7 +812,7 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
             }
             d if d.is_ascii_digit() => {
                 let (kind, text) =
-                    read_number(&chars, &mut pos, &mut line, &mut col, String::new());
+                    read_number(&chars, &mut pos, &mut line, &mut col, String::new())?;
                 out.push(Spanned {
                     kind,
                     text,
@@ -2419,5 +2467,122 @@ impl Parser {
                 break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The (kind, text) of every token, without the trailing Eof.
+    fn toks(src: &str) -> Vec<(Tok, String)> {
+        lex(src)
+            .expect("lexes")
+            .into_iter()
+            .filter(|t| t.kind != Tok::Eof)
+            .map(|t| (t.kind, t.text))
+            .collect()
+    }
+
+    fn float_value(src: &str) -> f64 {
+        let t = toks(src);
+        assert_eq!(t.len(), 1, "one token for {src:?}: {t:?}");
+        assert_eq!(t[0].0, Tok::Float, "{src:?} must be a Float literal");
+        t[0].1.parse().expect("Float text parses")
+    }
+
+    fn parse_code(src: &str) -> String {
+        let err = parse_program_strict(src).expect_err("must not parse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("E_PARSE"),
+            "{src:?} error is not E_PARSE: {msg}"
+        );
+        msg
+    }
+
+    #[test]
+    fn exponent_literals_are_floats_with_the_right_value() {
+        assert_eq!(float_value("1e10"), 1e10);
+        assert_eq!(float_value("1E10"), 1e10);
+        assert_eq!(float_value("1.5e3"), 1.5e3);
+        assert_eq!(float_value("2.5E-3"), 2.5e-3);
+        assert_eq!(float_value("1e+3"), 1e3);
+        assert_eq!(float_value("6.02e23"), 6.02e23);
+        assert_eq!(float_value("1e-0"), 1.0);
+        assert_eq!(float_value("0e0"), 0.0);
+    }
+
+    #[test]
+    fn negative_exponent_literals_keep_their_sign() {
+        assert_eq!(float_value("-1.5e3"), -1.5e3);
+        assert_eq!(float_value("-2e-2"), -2e-2);
+    }
+
+    #[test]
+    fn exponent_literal_binds_as_a_float_value() {
+        match parse_program_strict("x = 1e10").expect("parses").as_slice() {
+            [Stmt::Let {
+                value: Expr::LitFloat(x),
+                ..
+            }] => assert_eq!(*x, 1e10),
+            other => panic!("x = 1e10 did not bind a float literal: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn exponent_inside_a_call_parses() {
+        // The original report: `print(1.5e3)` was E_PARSE "expected ')'".
+        assert!(parse_program_strict("print(1.5e3)").is_ok());
+        assert!(parse_program_strict("x = 1 + 2e3").is_ok());
+    }
+
+    #[test]
+    fn integers_floats_and_si_suffixes_are_unchanged() {
+        assert_eq!(toks("42"), vec![(Tok::Int, "42".into())]);
+        assert_eq!(toks("3.14"), vec![(Tok::Float, "3.14".into())]);
+        assert_eq!(toks("-7"), vec![(Tok::Int, "-7".into())]);
+        assert_eq!(toks("1k"), vec![(Tok::Int, "1000".into())]);
+        assert_eq!(toks("2M"), vec![(Tok::Int, "2000000".into())]);
+        assert_eq!(toks("3G"), vec![(Tok::Int, "3000000000".into())]);
+    }
+
+    #[test]
+    fn range_and_member_access_still_lex_as_before() {
+        // `1..5` is Int, then the range dots, then Int: the fraction branch
+        // must not swallow the first dot.
+        assert_eq!(
+            toks("1..5"),
+            vec![
+                (Tok::Int, "1".into()),
+                (Tok::Dot, ".".into()),
+                (Tok::Dot, ".".into()),
+                (Tok::Int, "5".into()),
+            ]
+        );
+        // `arr.range(10)`: the digits sit inside call parentheses.
+        let t = toks("arr.range(10)");
+        assert_eq!(t[0], (Tok::Ident, "arr".into()));
+        assert_eq!(t[1], (Tok::Dot, ".".into()));
+        assert_eq!(t[2], (Tok::Ident, "range".into()));
+        assert_eq!(t[4], (Tok::Int, "10".into()));
+        // `x.1`: a digit after a dot lexes as an Int field token, not a float.
+        assert_eq!(toks("x.1")[2], (Tok::Int, "1".into()));
+    }
+
+    #[test]
+    fn number_followed_by_identifier_character_is_e_parse() {
+        for src in [
+            "12abc", "1e", "1ex", "1e+", "1.5e", "1key", "1kb", "1_000", "1x",
+        ] {
+            let msg = parse_code(src);
+            assert!(msg.contains("malformed number"), "{src:?}: {msg}");
+        }
+    }
+
+    #[test]
+    fn number_followed_by_space_or_punctuation_is_not_an_error() {
+        assert!(parse_program_strict("print(1)").is_ok());
+        assert!(parse_program_strict("x = [1, 2]").is_ok());
     }
 }
