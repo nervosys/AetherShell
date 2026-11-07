@@ -1038,12 +1038,12 @@ ish setup.zsh              # Zsh  → IronShell
 ish provision.ps1          # PowerShell → IronShell
 
 # Explicit mode flags
-ish --bash -c 'ls -la | grep .rs | wc -l'
-ish --zsh  -c 'typeset -A config; config=(host localhost port 8080)'
-ish --pwsh -c 'Get-ChildItem -Recurse | Where-Object {\$_.Length -gt 1MB}'
+ish --bash -c 'ls | grep .rs | wc -l'
+ish --zsh  -c 'ls **/*.txt'
+ish --pwsh -c 'Get-ChildItem *.rs | Measure-Object'
 
 # Pipe shell code via stdin
-echo 'for f in *.log; do wc -l \$f; done' | ish --bash
+echo 'for f in *.log; do wc -l $f; done' | ish --bash
 ```
 
 ### What Gets Transpiled
