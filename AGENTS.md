@@ -76,6 +76,9 @@ real program, directly, through the effect gate — never via `bash -c` — so
 agent mode gates each one. On E6 (`benches/agentic/bashcompat.mjs`), 32 of 32
 matched bash byte-for-byte, and 32 of 32 on a held-out corpus.
 
+In the subset, `uniq` drops only adjacent duplicates, as Unix `uniq` does
+(`sort | uniq` drops all of them); the `arr.unique` builtin drops all duplicates.
+
 Not in the subset (functions, `case`, `$((…))`, here-documents, subshells,
 background jobs) falls back to the transpiler, which may delegate to
 `bash -lc` when `IRONSHELL_ALLOW_SH` is set; that fallback is not contained.
@@ -88,13 +91,15 @@ ish setup.zsh           # Zsh  → IronShell
 ish provision.ps1       # PowerShell → IronShell
 
 # Explicit mode flags
-ish --bash -c 'ls -la | grep .rs | wc -l'
-ish --zsh  -c 'setopt extended_glob; ls **/*.txt'
-ish --pwsh -c 'Get-ChildItem -Recurse | Select-Object Name, Length'
+ish -b -c 'ls | grep .rs | wc -l'        # -b (same flag as --bash): in-process POSIX subset; ls takes -a, not -l
+ish --zsh  -c 'ls **/*.txt'              # typed records of every .txt, subfolders included (no setopt needed)
+ish --pwsh -c 'Get-ChildItem *.rs | Measure-Object'   # PowerShell subset: see note below
 
 # Pipe via stdin
 echo 'cat /etc/hosts' | ish --bash
 ```
+
+The PowerShell transpiler covers a subset only: `-Parameter` flags (`-Recurse`, `-Path`, `-Name`) and `Where-Object { … }` do not parse (E_PARSE), and `Select-Object Name` returns empty records. `Get-ChildItem` needs a path or glob before a pipe (bare `Get-ChildItem | …` passes null).
 
 Transpilers map 100+ commands per shell to native IronShell builtins, with block accumulation for multi-line constructs (`if`/`for`/`while`/`case`/`function`).
 
@@ -131,8 +136,8 @@ add = fn(a, b) => a + b
 # Pipelines
 [1,2,3] | map(fn(x) => x * 2) | reduce(fn(a,b) => a + b, 0)
 
-# `|` binds loosest (as in jq): parenthesize a pipe inside && / ||
-where(fn(r) => (r.title | lower | contains("x")) || (r.body | lower | contains("x")))
+# `|` binds loosest (as in jq): parenthesize a pipe inside && / || or before ==, e.g. ("Hello" | upper) == "HELLO"
+open("issues.json") | where(fn(r) => (r.title | lower | contains("x")) || (r.body | lower | contains("x")))
 
 # Rows: `.field` in a pipeline stage's argument is the row (jq's spelling),
 # `|.field` projects, `open` parses by extension (JSON, JSONL, TOML, YAML, CSV)
