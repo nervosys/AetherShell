@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Windows: `svc_create` with `restart: "always"` sets three restarts one second apart, with the non-crash flag on, so a non-zero exit restarts the service too. It was `E_UNIMPLEMENTED` before. The service control manager never restarts a service that stops cleanly, so on Windows "always" means restart on any failure. If the failure actions cannot be set, the new service is deleted.
 - `from_json`, `from-json`, `sha256`, `md5`, `crypto_sign` and `crypto_verify_signature` are classed ReadLocal, not Pure: `from_json` checks whether its input names a file, and the others read `IRONSHELL_FIPS`.
+- A number written straight into a letter (`12abc`, `1key`, `1_000`) is a parse error ("malformed number"). It was split into a number and a name. The `1k`/`1M`/`1G` suffixes are unchanged.
+
+### Fixed
+
+- Exponent literals: `1e10`, `1.5e3` and `2.5E-3` are Float literals. In 14.0.0, `x = 1e10` gave `1` silently, `1.5e3` was E_PARSE and `2.5E-3` called an unknown builtin `E`.
+- `undo` after creating a file removes it, including a bare filename (`a1.txt`) and the destinations of `file_append`, `save_json` and `file_copy`. In 14.0.0 no step was recorded, so `undo` reverted an older, unrelated step.
+- A `file_patch` or `file_replace` that matches nothing no longer rewrites the file or leaves a journal step, so `undo` no longer reports a restore that did not happen.
+- AGENTS.md and README: the shell-transpiler examples run as written; the PowerShell transpiler's gaps and `uniq`'s adjacent-only behaviour are stated.
 
 ## [14.0.0] - 2026-11-06
 
