@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A parse error at end of input names the last line with content: a one-line script no longer reports line 2.
 - A missing path's hint names the directory relative paths resolve against, instead of telling the agent to list identifiers.
 - With `--workspace`, a POSIX `cd` out of the workspace is refused, so `pwd` and where relative writes land agree. (Pinned mode without `--workspace` still allows the `cd` and refuses the write.)
+- An unrecognised backslash escape in a double-quoted string keeps the backslash: `"C:\Users\adamm"` reads back intact instead of as `C:Usersadamm`. The recognised escapes (`\n`, `\r`, `\t`, `\\`, `\"`, `\$`) are unchanged, so `"C:\temp"` still contains a tab: write `\\` or single quotes for Windows paths.
+- `grep` accepts a glob path and searches every match, as `cat` does; each match passes the workspace check. A directory is E_BAD_ARG ("is a directory"), not E_OS_DENIED.
+- `undo`, `session_undo` and `session_redo` return E_BAD_STATE when the journal is not recording (outside agent mode, unless `IRONSHELL_JOURNAL=on`), instead of reporting a successful undo of nothing. Recording is still off by default for humans.
 
 ## [14.0.0] - 2026-11-06
 
