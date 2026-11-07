@@ -773,14 +773,24 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                     if ch == '\\' {
                         if let Some(esc) = peek(&chars, pos) {
                             advance(&chars, &mut pos, &mut line, &mut col);
-                            s.push(match esc {
-                                'n' => '\n',
-                                'r' => '\r',
-                                't' => '\t',
-                                '\\' => '\\',
-                                '"' => '"',
-                                other => other,
-                            });
+                            match esc {
+                                'n' => s.push('\n'),
+                                'r' => s.push('\r'),
+                                't' => s.push('\t'),
+                                '\\' => s.push('\\'),
+                                '"' => s.push('"'),
+                                '$' => s.push('$'),
+                                // Not an escape the lexer knows (`C:\Users`,
+                                // `\d`, `\e`). The backslash was dropped here
+                                // before, so a Windows path lost its
+                                // separators without any sign. Keep both.
+                                other => {
+                                    s.push('\\');
+                                    s.push(other);
+                                }
+                            }
+                        } else {
+                            s.push('\\');
                         }
                     } else {
                         s.push(ch);

@@ -119,3 +119,35 @@ fn pipe_field_projection_composes_with_other_stages() {
     );
     assert_eq!(r, Value::Array(vec![Value::Str("a".into())]));
 }
+
+#[test]
+fn unknown_escape_keeps_its_backslash() {
+    // A Windows path in a double-quoted string keeps its separators. The
+    // lexer used to drop the backslash of any escape it did not recognise,
+    // so `"C:\Users\adamm"` came out as `C:Usersadamm`.
+    assert_eq!(
+        eval_str(r#"x = "C:\Users\adamm"; [x, len(x)]"#),
+        Value::Array(vec![Value::Str("C:\\Users\\adamm".into()), Value::Int(14)])
+    );
+    // `\d`, `\e` and `\u` are not escapes either: all three stay literal.
+    assert_eq!(eval_str(r#""\d\e\u""#), Value::Str("\\d\\e\\u".into()));
+}
+
+#[test]
+fn recognised_escapes_keep_their_meaning() {
+    assert_eq!(eval_str(r#""a\nb""#), Value::Str("a\nb".into()));
+    assert_eq!(eval_str(r#""a\tb""#), Value::Str("a\tb".into()));
+    assert_eq!(eval_str(r#""a\\b""#), Value::Str("a\\b".into()));
+    assert_eq!(eval_str(r#""say \"hi\"""#), Value::Str("say \"hi\"".into()));
+    assert_eq!(eval_str(r#""\$5""#), Value::Str("$5".into()));
+}
+
+#[test]
+fn unknown_escape_is_kept_in_interpolated_strings() {
+    assert_eq!(
+        eval_str(r#"x = 3; "n=${x} C:\Temp""#),
+        Value::Str("n=3 C:\\Temp".into())
+    );
+    // Single-quoted strings were always literal.
+    assert_eq!(eval_str(r#"'C:\Users'"#), Value::Str("C:\\Users".into()));
+}
