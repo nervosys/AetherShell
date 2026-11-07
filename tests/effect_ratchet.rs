@@ -1053,16 +1053,16 @@ fn report_builtins_that_read_while_classified_pure() {
 fn the_read_scanner_still_sees_a_file_being_opened() {
     // `report_builtins_that_read_while_classified_pure` now prints 0, which is
     // the same output a blinded scanner produces. This asserts the scanner can
-    // still see -- `cat_one` reads a file (it has been `bi_cat`'s reader since
-    // `cat` learned globs), and if this stops matching then the zero above
-    // means nothing.
+    // still see -- `read_named_file` reads a file (it is the reader `cat` and
+    // `grep` share, and was `cat_one` before `grep` learned globs), and if this
+    // stops matching then the zero above means nothing.
     let all = bodies_by_name();
     let body = all
-        .get("cat_one")
-        .expect("cat_one should be found by the body parser");
+        .get("read_named_file")
+        .expect("read_named_file should be found by the body parser");
     assert!(
         direct_evidence_in(body, READ_EVIDENCE).is_some(),
-        "the read scanner no longer sees cat_one reading a file; the 0 in the \
+        "the read scanner no longer sees read_named_file reading a file; the 0 in the \
          report is blindness, not coverage"
     );
 }

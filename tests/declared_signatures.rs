@@ -27,7 +27,10 @@ use iron_shell::value::Value;
 /// and declared examples include `session_undo()` and `session_end()`: run
 /// against the default key they would rewind, then forget, whatever an agent
 /// session in this checkout had recorded. Every example is evaluated through
-/// this, so none can reach the real journal.
+/// this, so none can reach the real journal. The journal is also switched on
+/// (`IRONSHELL_JOURNAL=on`): outside agent mode `undo`, `session_undo` and
+/// `session_redo` refuse with E_BAD_STATE, and their examples document a
+/// session that records.
 /// Runs `f` on the evaluation stack `ish` itself uses (`with_eval_stack`).
 /// These loops evaluate every example on one thread; on libtest's default
 /// stack, a deep example intermittently overflowed it (exit 0xC00000FD).
@@ -40,6 +43,7 @@ fn env() -> Env {
     ISOLATED.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_declared_{}", std::process::id()));
         std::env::set_var("IRONSHELL_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_JOURNAL", "on");
     });
     Env::new()
 }
