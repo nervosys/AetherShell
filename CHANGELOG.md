@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Windows: `svc_create` with `restart: "always"` sets three restarts one second apart, with the non-crash flag on, so a non-zero exit restarts the service too. It was `E_UNIMPLEMENTED` before. The service control manager never restarts a service that stops cleanly, so on Windows "always" means restart on any failure. If the failure actions cannot be set, the new service is deleted.
+- `from_json`, `from-json`, `sha256`, `md5`, `crypto_sign` and `crypto_verify_signature` are classed ReadLocal, not Pure: `from_json` checks whether its input names a file, and the others read `IRONSHELL_FIPS`.
+
 ## [14.0.0] - 2026-11-06
 
 Released as 14.0.0; no 13.0.0 was published.
