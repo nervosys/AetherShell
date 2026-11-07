@@ -13,7 +13,7 @@
 //! does not bound memory: `{s = s s}` doubles a string per line in a handful
 //! of steps, so sizes are bounded where values are made.
 
-use crate::safety::{arg_err, budget_exceeded};
+use crate::safety::{arg_err, bad_value, budget_exceeded};
 use anyhow::Result;
 use regex::Regex;
 use std::cmp::Ordering;
@@ -1545,14 +1545,14 @@ fn binary(op: Bin, a: &Val, b: &Val) -> Result<Val> {
         Bin::Div => {
             let d = to_num(b);
             if d == 0.0 {
-                return Err(arg_err("awk: division by zero"));
+                return Err(bad_value("awk: division by zero", "the same values divide by zero again: check the divisor is not 0 before dividing"));
             }
             Val::Num(to_num(a) / d)
         }
         Bin::Mod => {
             let d = to_num(b);
             if d == 0.0 {
-                return Err(arg_err("awk: division by zero in %"));
+                return Err(bad_value("awk: division by zero in %", "the same values divide by zero again: check the divisor is not 0 before taking the remainder"));
             }
             Val::Num(to_num(a) % d)
         }

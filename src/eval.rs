@@ -1094,10 +1094,16 @@ fn is_zero_divisor(v: &Value) -> bool {
 
 /// The refusal both `/` and `%` give for a zero divisor.
 fn divide_by_zero(what: &str) -> anyhow::Error {
-    crate::safety::arg_err(&format!(
-        "{what} by zero: the divisor evaluated to 0. Guard the divisor, or \
-         filter the empty case before dividing"
-    ))
+    // Not retryable: the divisor is data, and re-running with the same values
+    // divides by the same zero. The hint says what to change.
+    crate::safety::bad_value(
+        format!(
+            "{what} by zero: the divisor evaluated to 0. Guard the divisor, or \
+             filter the empty case before dividing"
+        ),
+        "the same values divide by zero again: check the divisor is not 0 before \
+         dividing, or filter zero divisors out first",
+    )
 }
 
 fn is_truthy(v: &Value) -> bool {

@@ -1581,10 +1581,17 @@ pub enum ErrorCode {
     OutsideWorkspace,
     /// A builtin was called with a missing or wrong-typed argument.
     BadArg,
+    /// A well-formed argument whose value makes the operation undefined, such as
+    /// a zero divisor. It reports the wire code `E_BAD_ARG` like `BadArg`, so an
+    /// agent branches on one code for bad arguments, but it is not retryable:
+    /// the same value fails the same way, and only the caller's data can change
+    /// that. `BadArg` stays retryable because a corrected call can succeed.
+    BadValue,
     /// A resource governor (op count, files, processes, or wall-clock) was hit.
     BudgetExceeded,
     /// A builtin was called by a name that does not exist. Carries
-    /// `did_you_mean` candidates, so this is the one *retryable* lookup failure.
+    /// `did_you_mean` candidates; the same name fails again, so it is not
+    /// retryable as the same call.
     UnknownBuiltin,
     /// A record field (which is how module functions like `file.read` resolve)
     /// does not exist. Like `UnknownBuiltin`, carries `did_you_mean`.
@@ -1708,7 +1715,7 @@ impl ErrorCode {
             ErrorCode::PolicyDeny => "E_POLICY_DENY",
             ErrorCode::NeedsApproval => "E_NEEDS_APPROVAL",
             ErrorCode::OutsideWorkspace => "E_OUTSIDE_WORKSPACE",
-            ErrorCode::BadArg => "E_BAD_ARG",
+            ErrorCode::BadArg | ErrorCode::BadValue => "E_BAD_ARG",
             ErrorCode::BudgetExceeded => "E_BUDGET_EXCEEDED",
             ErrorCode::UnknownBuiltin => "E_UNKNOWN_BUILTIN",
             ErrorCode::UnknownField => "E_UNKNOWN_FIELD",
@@ -1736,13 +1743,22 @@ impl ErrorCode {
     /// `false`, because retrying them burns budget without changing the outcome.
     pub fn retryable(&self) -> bool {
         match self {
-            ErrorCode::BadArg | ErrorCode::UnknownBuiltin | ErrorCode::UnknownField => true,
+            ErrorCode::BadArg | ErrorCode::UnknownField => true,
             // Retryable by naming something that exists...
             ErrorCode::NotFound => true,
             // ...and this one by running the prerequisite the hint names, not
             // by changing anything about this call.
             ErrorCode::BadState => true,
-            ErrorCode::NeedsApproval | ErrorCode::OutsideWorkspace => true,
+            ErrorCode::NeedsApproval => true,
+            // Not retryable: the same value is undefined on every attempt.
+            ErrorCode::BadValue => false,
+            // Not retryable: the name does not resolve, so the same name fails
+            // again. A did_you_mean candidate is a new call, not a retry.
+            ErrorCode::UnknownBuiltin => false,
+            // Not retryable: the same path is outside the same workspace. The
+            // fix is a path inside it, which is a different call, or the
+            // operator widening the workspace, which no retry can do.
+            ErrorCode::OutsideWorkspace => false,
             // Not retryable: the same call fails identically until someone
             // installs the tool, which is an action outside this process.
             ErrorCode::ToolMissing => false,
@@ -1797,7 +1813,7 @@ impl ErrorCode {
             // without being told.
             ErrorCode::UnknownBuiltin | ErrorCode::ToolMissing => 127,
             // EX_USAGE — the call was malformed.
-            ErrorCode::BadArg | ErrorCode::UnknownField => 64,
+            ErrorCode::BadArg | ErrorCode::BadValue | ErrorCode::UnknownField => 64,
             // EX_NOPERM — refused, and retrying unchanged will refuse again.
             ErrorCode::PolicyDeny | ErrorCode::OutsideWorkspace => 77,
             // EX_TEMPFAIL — the same call may succeed once approved.
@@ -2362,14 +2378,23 @@ pub fn outside_workspace(builtin: &str, path: &str) -> anyhow::Error {
         code: ErrorCode::OutsideWorkspace,
         message: format!("{builtin}: `{path}` is outside the workspace"),
         builtin: builtin.to_string(),
-        hint: "work inside the workspace root, or start the shell with a \
-               wider --workspace"
-            .to_string(),
+        hint: outside_workspace_hint(),
         approval: None,
         did_you_mean: Vec::new(),
         expected: "a path inside the workspace".to_string(),
         got: path.to_string(),
     })
+}
+
+/// The hint for `E_OUTSIDE_WORKSPACE`. It names the root and tells the caller to
+/// use a path inside it. It does not tell the caller how to widen the workspace:
+/// that decision belongs to the operator, and an agent that is told how to widen
+/// its own jail will do it.
+pub fn outside_workspace_hint() -> String {
+    format!(
+        "use a path inside the workspace root {}; only the operator can widen the workspace",
+        workspace_root().display()
+    )
 }
 
 /// Classify a filesystem failure.
@@ -2480,6 +2505,22 @@ pub fn os_denied(
         did_you_mean: Vec::new(),
         expected: String::new(),
         got: "permission denied".to_string(),
+    })
+}
+
+/// Build a structured value error (`E_BAD_ARG`, not retryable): the argument is
+/// well-formed but its value makes the operation undefined. The hint says what
+/// to change, which for these is the caller's data.
+pub fn bad_value(message: impl Into<String>, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::BadValue,
+        message: message.into(),
+        builtin: String::new(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
     })
 }
 
@@ -6568,10 +6609,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     code: ErrorCode::OutsideWorkspace,
                     message: format!("{}: '{}' is outside the workspace root", ctx.builtin, t),
                     builtin: ctx.builtin.to_string(),
-                    hint: format!(
-                        "operate on paths under {} or set IRONSHELL_WORKSPACE",
-                        workspace_root().display()
-                    ),
+                    hint: outside_workspace_hint(),
                     approval: None,
                     did_you_mean: Vec::new(),
                     expected: String::new(),

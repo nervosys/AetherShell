@@ -306,10 +306,7 @@ fn resolve(source: &str) -> Result<PathBuf> {
             code: ErrorCode::OutsideWorkspace,
             message: format!("import: '{shown}' is outside the workspace root"),
             builtin: "import".to_string(),
-            hint: format!(
-                "import modules under {} or set IRONSHELL_WORKSPACE",
-                safety::workspace_root().display()
-            ),
+            hint: safety::outside_workspace_hint(),
             approval: None,
             did_you_mean: Vec::new(),
             expected: String::new(),
