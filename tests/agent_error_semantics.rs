@@ -144,6 +144,67 @@ fn a_missing_path_hint_says_where_a_relative_path_resolves() {
     assert!(!text.contains("use an identifier"), "{text}");
 }
 
+/// `ish -b --workspace <ws> -c <src>` run from `ws`. Returns (exit, stdout, stderr).
+fn workspace_cd_run(ws: &std::path::Path, src: &str) -> (i32, String, String) {
+    let session = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("d3_session");
+    std::fs::create_dir_all(&session).expect("session dir");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_ish"))
+        .args(["-b", "--workspace"])
+        .arg(ws)
+        .args(["-c", src])
+        .current_dir(ws)
+        .env("IRONSHELL_SESSION_DIR", &session)
+        .env("NO_COLOR", "1")
+        .env("IRONSHELL_ALLOW_SH", "")
+        .output()
+        .expect("run ish");
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn workspace_mode_refuses_a_cd_out_so_pwd_and_writes_agree() {
+    let base = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("d3_cd");
+    let _ = std::fs::remove_dir_all(&base);
+    let ws = base.join("ws");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(ws.join("inside")).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+
+    // The cd is refused, so pwd never reports the outside folder.
+    let (code, stdout, stderr) = workspace_cd_run(&ws, "cd ../outside; pwd");
+    // `;` runs pwd after the refused cd, so the exit status is pwd's.
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(
+        !stdout.contains("outside"),
+        "pwd reported the outside folder: {stdout}"
+    );
+    assert!(
+        stdout.trim_end().ends_with("ws"),
+        "pwd must still show the workspace: {stdout}"
+    );
+    assert!(stderr.contains("outside the workspace"), "{stderr}");
+
+    // A relative write after the refused cd lands where the shell is: in ws.
+    let _ = workspace_cd_run(&ws, "cd ../outside; echo hi > rel-d3.txt");
+    assert!(
+        !outside.join("rel-d3.txt").exists(),
+        "write escaped the workspace"
+    );
+    assert!(
+        ws.join("rel-d3.txt").exists(),
+        "the write did not land where pwd says"
+    );
+
+    // A cd inside the workspace still works.
+    let (code, stdout, _) = workspace_cd_run(&ws, "cd inside; pwd");
+    assert_eq!(code, 0, "{stdout}");
+    assert!(stdout.trim_end().ends_with("inside"), "{stdout}");
+}
+
 /// Run `ish --agent -c <src>` in a scratch directory and return (exit, stdout+stderr).
 fn agent_run(src: &str) -> (i32, String) {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("agent_error_semantics");

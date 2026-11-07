@@ -1641,6 +1641,23 @@ impl Shell {
                     Some(t) => t.clone(),
                     None => self.var("HOME").unwrap_or_default(),
                 };
+                // With --workspace set, a cd may not leave the workspace. Otherwise
+                // pwd reports the outside folder while a relative write still
+                // lands inside the jail, and the two disagree. The check is only
+                // for an explicit workspace; the pinned agent root is unchanged.
+                if std::env::var_os("IRONSHELL_WORKSPACE").is_some() {
+                    let dest = match std::env::current_dir() {
+                        Ok(here) => here.join(&target),
+                        Err(_) => std::path::PathBuf::from(&target),
+                    };
+                    if !crate::safety::within_workspace(&dest.to_string_lossy()) {
+                        sink.eline(&format!(
+                            "{SHELL_NAME}: cd: {target}: outside the workspace; {}",
+                            crate::safety::outside_workspace_hint()
+                        ));
+                        return Flow::Next(1);
+                    }
+                }
                 let old = std::env::current_dir().ok();
                 return match std::env::set_current_dir(&target) {
                     Ok(()) => {
