@@ -136,6 +136,14 @@ fn an_error_at_end_of_input_names_the_last_line_with_content() {
     }
 }
 
+#[test]
+fn a_missing_path_hint_says_where_a_relative_path_resolves() {
+    let (code, text) = agent_run(r#"file.read("no-such-d3-file.txt")"#);
+    assert_eq!(code, 66, "{text}");
+    assert!(text.contains("resolved against"), "{text}");
+    assert!(!text.contains("use an identifier"), "{text}");
+}
+
 /// Run `ish --agent -c <src>` in a scratch directory and return (exit, stdout+stderr).
 fn agent_run(src: &str) -> (i32, String) {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("agent_error_semantics");

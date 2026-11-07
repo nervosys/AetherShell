@@ -2048,19 +2048,33 @@ pub fn lock_poisoned(builtin: &str, what: &str) -> anyhow::Error {
 /// `kind` is what was being looked up ("job", "key"), `name` the identifier
 /// that missed. Retryable, because a different identifier may well exist.
 pub fn not_found(builtin: &str, kind: &str, name: &str) -> anyhow::Error {
-    anyhow::Error::new(SafetyError {
-        code: ErrorCode::NotFound,
-        message: format!("{builtin}: no {kind} named '{name}'"),
-        builtin: builtin.to_string(),
-        // "processes", not "processs".
-        hint: format!(
+    // A path is not an identifier. For a file or directory the useful facts are
+    // where a relative path was resolved and how to look, not a list to choose
+    // an identifier from.
+    let hint = if matches!(kind, "file" | "directory" | "path") {
+        let here = std::env::current_dir()
+            .map(|d| d.display().to_string())
+            .unwrap_or_else(|_| "the current directory".to_string());
+        format!(
+            "no {kind} at this path; a relative path is resolved against {here}, so \
+             check the spelling and that directory, or list it with ls() first"
+        )
+    } else {
+        format!(
             "list the available {kind}{} and use an identifier from it",
+            // "processes", not "processs".
             if kind.ends_with('s') || kind.ends_with("sh") || kind.ends_with("ch") {
                 "es"
             } else {
                 "s"
             }
-        ),
+        )
+    };
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::NotFound,
+        message: format!("{builtin}: no {kind} named '{name}'"),
+        builtin: builtin.to_string(),
+        hint,
         approval: None,
         did_you_mean: Vec::new(),
         expected: format!("an existing {kind}"),
