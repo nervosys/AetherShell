@@ -8361,42 +8361,49 @@ fn bi_cat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
-    // A glob reads every match, in order, as `cat src/*.rs` does -- unless a
-    // file with that literal name exists.
+    Ok(Value::Str(read_named_files("cat", path_str)?))
+}
+
+/// The text of the path a builtin was given. A glob reads every match, in
+/// order, as `cat src/*.rs` does -- unless a file with that literal name
+/// exists. Every path read goes through `validate_read_path`, so the workspace
+/// jail applies to each match, not only to the pattern. `cat` and `grep` both
+/// read their paths this way.
+fn read_named_files(builtin: &str, path_str: &str) -> Result<String> {
     if crate::posix::has_glob_meta(path_str) && !std::path::Path::new(path_str).exists() {
-        let paths = expand_glob_for("cat", path_str)?;
+        let paths = expand_glob_for(builtin, path_str)?;
         let files: Vec<&String> = paths
             .iter()
             .filter(|p| std::path::Path::new(p).is_file())
             .collect();
         if files.is_empty() {
-            return Err(crate::safety::not_found("cat", "file matching", path_str));
+            return Err(crate::safety::not_found(builtin, "file matching", path_str));
         }
         let mut all = String::new();
         for p in files {
-            all.push_str(&cat_one(p)?);
+            all.push_str(&read_named_file(builtin, p)?);
         }
-        return Ok(Value::Str(all));
+        return Ok(all);
     }
-    Ok(Value::Str(cat_one(path_str)?))
+    read_named_file(builtin, path_str)
 }
 
-fn cat_one(path_str: &str) -> Result<String> {
+fn read_named_file(builtin: &str, path_str: &str) -> Result<String> {
     // A missing parent directory made validate_read_path fail with an uncoded
     // "Failed to canonicalize parent directory".
     if !std::path::Path::new(path_str).exists() {
-        return Err(crate::safety::not_found("cat", "file", path_str));
+        return Err(crate::safety::not_found(builtin, "file", path_str));
     }
     // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
     let validated_path = validate_read_path(path_str)?;
 
     // SECURITY FIX (MED-001): Check file size before reading
     let metadata = fs::metadata(&validated_path)
-        .map_err(|e| crate::safety::fs_error("cat", &validated_path, &e))?;
-    check_file_size_limit(metadata.len()).context("cat: file too large")?;
+        .map_err(|e| crate::safety::fs_error(builtin, &validated_path, &e))?;
+    check_file_size_limit(metadata.len()).context(format!("{builtin}: file too large"))?;
 
     fs::read_to_string(&validated_path)
-        .map_err(|e| crate::safety::fs_error("cat", &validated_path, &e))
+        .map_err(|e| crate::safety::fs_error(builtin, &validated_path, &e))
 }
 
 fn bi_read_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -8915,7 +8922,7 @@ fn bi_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 ))
             }
         };
-        read_text_capped("grep", path)?
+        grep_source_text(path)?
     } else {
         return Err(crate::safety::bad_arg(
             "grep",
@@ -8949,6 +8956,29 @@ fn bi_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .collect();
 
     Ok(Value::Array(matching_lines))
+}
+
+/// The text `grep(pattern, path)` searches. The path is read as `cat` reads
+/// it, so a glob searches every matching file in order and
+/// `grep("fn ", "src/*.rs")` answers what `cat("src/*.rs") | grep("fn ")`
+/// does. A directory is not text. Reading it gave E_OS_DENIED with a
+/// permissions hint, which was the wrong cause, so it is refused as a bad
+/// argument instead.
+fn grep_source_text(path: &str) -> Result<String> {
+    crate::security::check_share_egress("grep", path)?;
+    let named = std::path::Path::new(path);
+    if named.exists() {
+        // The jail is checked before the kind, so a directory outside the
+        // workspace is refused as outside it, not described.
+        validate_read_path(path)?;
+        if named.is_dir() {
+            return Err(crate::safety::bad_value(
+                format!("grep: `{path}` is a directory, not a file"),
+                "pass a file, or a glob that names the files to search, such as 'src/**/*.rs'",
+            ));
+        }
+    }
+    read_named_files("grep", path)
 }
 
 // --------------- Formatting helpers ---------------
