@@ -2501,7 +2501,10 @@ fn describe_builtin_name(name: &str) -> String {
             "cp" => "Copy file or directory".to_string(),
             "grep" => "Search for pattern in text".to_string(),
             "sort" => "Sort lines or array elements".to_string(),
-            "uniq" => "Remove adjacent duplicate elements (like Unix uniq); use unique for all duplicates".to_string(),
+            "uniq" => {
+                "Remove adjacent duplicate elements (like Unix uniq); use unique for all duplicates"
+                    .to_string()
+            }
             "wc" => "Count lines, words, and bytes".to_string(),
             "head" => "Show first N lines".to_string(),
             "tail" => "Show last N lines".to_string(),
