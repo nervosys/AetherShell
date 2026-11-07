@@ -328,7 +328,7 @@ fn a_failed_attempt_is_rolled_back_before_the_error_is_returned() {
 
     // A batch that mutates twice and then fails on a call that cannot succeed.
     let code = format!(
-        "file_write({:?}, \"clobbered\")\nfile_write({:?}, \"new\")\nno_such_builtin_here()",
+        "file_write({:?}, \"clobbered\")\nfile_write({:?}, \"new\")\naeconn(1)",
         good.to_string_lossy().replace('\\', "/"),
         made.to_string_lossy().replace('\\', "/"),
     );

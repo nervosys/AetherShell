@@ -1505,6 +1505,15 @@ pub fn is_module_name(name: &str) -> bool {
     MODULE_NAMES.contains(name)
 }
 
+/// Whether `module` is a registered namespace with a member named `func`, so
+/// `module.func` is a real call. Used to suggest the module spelling of a name
+/// an agent wrote with underscores (`file_read` for `file.read`).
+pub fn is_module_member(module: &str, func: &str) -> bool {
+    module_table().iter().any(|(m, v)| {
+        *m == module && matches!(v, Value::Record(members) if members.contains_key(func))
+    })
+}
+
 lazy_static::lazy_static! {
     static ref MODULE_NAMES: std::collections::HashSet<&'static str> =
         all_modules().into_iter().map(|(n, _)| n).collect();

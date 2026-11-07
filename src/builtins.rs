@@ -3832,7 +3832,25 @@ fn edit_distance_within(a: &str, b: &str, max: usize) -> Option<usize> {
 /// result is empty. The budget scales with name length (1 for very short names,
 /// where every neighbour is a different command; up to 3 for long dotted ones).
 pub fn did_you_mean(name: &str) -> Vec<String> {
-    nearest_names(name, BUILTIN_LOOKUP.keys().copied())
+    // The module spelling comes first. `file_read` is not a builtin, but
+    // `file.read` is the call an agent meant, and an edit-distance guess
+    // (`file_rename`) is a worse answer than that one. It is offered only when
+    // the module really has that member.
+    let mut out = Vec::new();
+    if let Some((module, func)) = name.split_once('_') {
+        if crate::modules::is_module_member(module, func) {
+            out.push(format!("{module}.{func}"));
+        }
+    }
+    for near in nearest_names(name, BUILTIN_LOOKUP.keys().copied()) {
+        if out.len() == 3 {
+            break;
+        }
+        if !out.contains(&near) {
+            out.push(near);
+        }
+    }
+    out
 }
 
 /// The nearest names to `name` from an arbitrary candidate set, closest first

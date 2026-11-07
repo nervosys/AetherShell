@@ -1752,9 +1752,10 @@ impl ErrorCode {
             ErrorCode::NeedsApproval => true,
             // Not retryable: the same value is undefined on every attempt.
             ErrorCode::BadValue => false,
-            // Not retryable: the name does not resolve, so the same name fails
-            // again. A did_you_mean candidate is a new call, not a retry.
-            ErrorCode::UnknownBuiltin => false,
+            // Retryable by naming a real builtin, which is what did_you_mean
+            // carries. `SafetyError::is_retryable` narrows this to the calls
+            // that have a candidate: with none, the same name fails again.
+            ErrorCode::UnknownBuiltin => true,
             // Not retryable: the same path is outside the same workspace. The
             // fix is a path inside it, which is a different call, or the
             // operator widening the workspace, which no retry can do.
@@ -2767,6 +2768,19 @@ pub struct SafetyError {
 }
 
 impl SafetyError {
+    /// Whether this failure, as reported, is worth re-running with a correction.
+    ///
+    /// The class answers for most codes. An unknown builtin is the exception
+    /// that depends on the call: a misspelling with a real candidate is retried
+    /// under that candidate, but a name with nothing close fails the same way
+    /// every time.
+    pub fn is_retryable(&self) -> bool {
+        match self.code {
+            ErrorCode::UnknownBuiltin => !self.did_you_mean.is_empty(),
+            code => code.retryable(),
+        }
+    }
+
     /// The structured JSON form an agent reads programmatically.
     pub fn to_json(&self) -> Json {
         let mut err = json!({
@@ -2774,7 +2788,7 @@ impl SafetyError {
             "message": self.message,
             "builtin": self.builtin,
             "hint": self.hint,
-            "retryable": self.code.retryable(),
+            "retryable": self.is_retryable(),
         });
         if let Some(a) = &self.approval {
             err["approval"] = serde_json::to_value(a).unwrap_or(Json::Null);

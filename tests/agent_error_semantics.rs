@@ -17,7 +17,6 @@ fn structured(e: &anyhow::Error) -> &SafetyError {
 
 #[test]
 fn retryable_is_false_where_the_same_call_fails_again() {
-    assert!(!ErrorCode::UnknownBuiltin.retryable());
     assert!(!ErrorCode::OutsideWorkspace.retryable());
     assert!(!ErrorCode::BadValue.retryable());
 }
@@ -30,12 +29,16 @@ fn retryable_stays_true_where_a_corrected_call_can_succeed() {
 }
 
 #[test]
-fn unknown_builtin_json_is_not_retryable_and_keeps_did_you_mean() {
-    let e = safety::unknown_builtin("file_read", vec!["file.read".to_string()]);
-    let j = structured(&e).to_json();
+fn unknown_builtin_is_retryable_only_when_a_real_name_is_offered() {
+    // A misspelling with a candidate is retried under that candidate.
+    let with = safety::unknown_builtin("file_read", vec!["file.read".to_string()]);
+    let j = structured(&with).to_json();
     assert_eq!(j["error"]["code"], "E_UNKNOWN_BUILTIN");
-    assert_eq!(j["error"]["retryable"], false);
+    assert_eq!(j["error"]["retryable"], true);
     assert_eq!(j["error"]["did_you_mean"][0], "file.read");
+    // With nothing close, the same name fails again.
+    let without = safety::unknown_builtin("nosuchthing", Vec::new());
+    assert_eq!(structured(&without).to_json()["error"]["retryable"], false);
 }
 
 #[test]
@@ -105,6 +108,28 @@ fn an_unknown_name_is_reported_unknown_before_the_approval_gate() {
     assert!(text.contains("E_UNKNOWN_BUILTIN"), "{text}");
     assert!(!text.contains("E_NEEDS_APPROVAL"), "{text}");
     assert_eq!(code, 127, "{text}");
+}
+
+#[test]
+fn did_you_mean_offers_the_module_spelling_ahead_of_edit_distance_guesses() {
+    // `file_read` is not a builtin; `file.read` is the call the agent meant.
+    let dym = iron_shell::builtins::did_you_mean("file_read");
+    assert_eq!(
+        dym.first().map(String::as_str),
+        Some("file.read"),
+        "{dym:?}"
+    );
+    // A name whose prefix is not a module gets no module-form guess.
+    let none = iron_shell::builtins::did_you_mean("nosuch_thing");
+    assert!(none.iter().all(|s| !s.contains('.')), "{none:?}");
+}
+
+#[test]
+fn the_agent_sees_the_module_spelling_in_did_you_mean() {
+    let (code, text) = agent_run(r#"file_read("a.txt")"#);
+    assert_eq!(code, 127, "{text}");
+    assert!(text.contains("E_UNKNOWN_BUILTIN"), "{text}");
+    assert!(text.contains(r#""did_you_mean":["file.read""#), "{text}");
 }
 
 #[test]
