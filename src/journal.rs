@@ -420,13 +420,55 @@ fn held_bytes(s: &State) -> usize {
     total_bytes(&s.journal) + redo_bytes(&s.redo)
 }
 
+/// The argument that names the file a builtin writes, for the builtins that
+/// write one named file.
+///
+/// Keyed by the canonical name, so aliases (`write_file`, `text_write`) share
+/// the entry. Without this, the generic rule in [`candidate_paths`] guessed
+/// from every string argument, and a bare filename with no directory part
+/// (`a1.txt`) never passed its plausibility test: creating such a file left no
+/// step, so `undo` reverted an older unrelated step instead.
+fn written_path_argument(builtin: &str) -> Option<usize> {
+    let canonical = crate::signature::signature_of(builtin).map_or(builtin, |s| s.name);
+    match canonical {
+        "file_write" | "file_append" | "save_json" | "file_patch" | "file_replace"
+        | "file_insert" | "file_edit" | "touch" => Some(0),
+        "file_copy" => Some(1),
+        _ => None,
+    }
+}
+
+/// The path a named-path builtin will write, resolved the way the builtin
+/// resolves it, so the entry names the file the step touched whatever the
+/// working directory is. Empty when the argument is not a usable path.
+fn written_path_candidates(builtin: &str, args: &[Value]) -> Option<Vec<String>> {
+    let index = written_path_argument(builtin)?;
+    let out = match args.get(index) {
+        Some(Value::Str(s))
+            if !s.is_empty()
+                && s.len() <= 4096
+                && !s.contains('\n')
+                && !s.contains('\0')
+                && !crate::safety::names_a_remote_share(s) =>
+        {
+            vec![crate::safety::resolve_path_str(s)]
+        }
+        _ => Vec::new(),
+    };
+    Some(out)
+}
+
 /// A string argument that plausibly names a file this call could write.
 ///
 /// Deliberately generous: capturing a path the builtin never touches costs one
 /// file read and restores identical bytes on undo, which is harmless. Missing
 /// one loses the ability to recover it, which is not. The asymmetry decides the
-/// bias.
-fn candidate_paths(args: &[Value]) -> Vec<String> {
+/// bias. Builtins in [`written_path_argument`] name their file explicitly and
+/// skip this guess.
+fn candidate_paths(builtin: &str, args: &[Value]) -> Vec<String> {
+    if let Some(paths) = written_path_candidates(builtin, args) {
+        return paths;
+    }
     let mut out = Vec::new();
     for a in args {
         if let Value::Str(s) = a {
@@ -486,13 +528,14 @@ fn capture(path: &str, used: usize) -> Result<Before, String> {
 /// A mutating step discards the redo stack whether or not it touches a
 /// candidate path: a new action ends the undone future.
 pub fn record_before(builtin: &str, effect: Effect, args: &[Value]) {
+    NO_CHANGE.with(|c| c.set(false));
     if !enabled() || is_journal_builtin(builtin) {
         return;
     }
     if !matches!(effect, Effect::WriteLocal | Effect::Destructive) {
         return;
     }
-    let paths = candidate_paths(args);
+    let paths = candidate_paths(builtin, args);
     let mut s = state();
     discard_redo(&mut s);
     for path in paths {
@@ -512,6 +555,24 @@ pub fn record_before(builtin: &str, effect: Effect, args: &[Value]) {
         persist(&entry);
         s.journal.push(entry);
     }
+}
+
+thread_local! {
+    /// Set by a builtin that completed without changing the file it was asked
+    /// to change (`file_patch` with no pattern found). The dispatcher drops the
+    /// step recorded for that call, so `undo` does not report a restore that
+    /// never happened.
+    static NO_CHANGE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Called by a builtin that completed but changed nothing.
+pub fn report_no_change() {
+    NO_CHANGE.with(|c| c.set(true));
+}
+
+/// Whether the call that just ran reported no change. Clears the report.
+pub fn take_no_change() -> bool {
+    NO_CHANGE.with(|c| c.replace(false))
 }
 
 /// Note a step that changed the world in a way no snapshot can capture, so a

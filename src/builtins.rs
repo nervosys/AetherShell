@@ -4183,8 +4183,9 @@ fn call_with_input_inner(
         // A call that failed changed nothing, so it must leave nothing behind to
         // undo. Without this a write refused by the workspace jail still left an
         // entry, and `undo()` answered `complete: false` about an operation that
-        // never ran.
-        if result.is_err() {
+        // never ran. A call that succeeded but reported no change (a `file_patch`
+        // whose pattern was not found) is the same case: its step is dropped too.
+        if result.is_err() || (journal_on && crate::journal::take_no_change()) {
             crate::journal::rollback_to(journal_mark);
         }
         return result;
@@ -47444,9 +47445,15 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     }
 
-    // Write back atomically
-    crate::tx::snapshot(&path); // record pre-patch state if a transaction is active
-    write_file_atomically("file_patch", &path, content.as_bytes())?;
+    // Nothing matched, so the file is left as it is: no write, and the journal
+    // step recorded for this call is dropped by the dispatcher.
+    if applied.is_empty() {
+        crate::journal::report_no_change();
+    } else {
+        // Write back atomically
+        crate::tx::snapshot(&path); // record pre-patch state if a transaction is active
+        write_file_atomically("file_patch", &path, content.as_bytes())?;
+    }
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));

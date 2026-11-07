@@ -525,3 +525,211 @@ fn a_failed_undo_does_not_undo_older_steps_past_it() {
         "both steps stay journalled so the undo can be retried in order"
     );
 }
+
+/// Moves the process into `dir` for one test and back again. A bare filename
+/// (`a1.txt`) is relative to the working directory, which is the case under test.
+struct CwdGuard(PathBuf);
+
+impl CwdGuard {
+    fn enter(dir: &std::path::Path) -> Self {
+        let old = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(dir).expect("enter session dir");
+        Self(old)
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        let _ = std::env::set_current_dir(&self.0);
+    }
+}
+
+#[test]
+fn a_new_file_named_by_a_bare_filename_is_removed_by_undo() {
+    // Found on 14.0.0: `file_write("a1.txt", "1")` created the file, but no step
+    // was journalled for it, because a bare name has no directory part and failed
+    // the generic plausibility test. `undo` then reported `steps: []` and left
+    // the file in place.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("bare_create");
+    let _cwd = CwdGuard::enter(&s.dir);
+
+    call(
+        "file_write",
+        vec![Value::Str("a1.txt".into()), Value::Str("1".into())],
+    )
+    .expect("write");
+    assert!(PathBuf::from("a1.txt").exists());
+
+    let result = call("undo", vec![]).expect("undo");
+    assert_eq!(field(&result, "removed"), Value::Int(1), "{result:?}");
+    assert!(
+        !PathBuf::from("a1.txt").exists(),
+        "undo must remove the file the step created"
+    );
+}
+
+#[test]
+fn undo_after_a_new_file_write_leaves_an_older_step_alone() {
+    // With an older journalled step present, the new-file write recorded nothing,
+    // so `undo` reverted the older overwrite instead of removing the new file.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("older_step");
+    let older = s.path("older.txt");
+    let fresh = s.path("fresh.txt");
+    std::fs::write(&older, "v0").expect("seed");
+
+    call(
+        "file_write",
+        vec![Value::Str(older.clone()), Value::Str("v1".into())],
+    )
+    .expect("overwrite");
+    call(
+        "file_write",
+        vec![Value::Str(fresh.clone()), Value::Str("new".into())],
+    )
+    .expect("create");
+
+    let result = call("undo", vec![]).expect("undo");
+    assert_eq!(field(&result, "removed"), Value::Int(1), "{result:?}");
+    assert_eq!(field(&result, "restored"), Value::Int(0), "{result:?}");
+    assert!(!PathBuf::from(&fresh).exists(), "the new file is removed");
+    assert_eq!(
+        std::fs::read_to_string(&older).unwrap(),
+        "v1",
+        "the older step's file must not be reverted by this undo"
+    );
+
+    // The older step is still there to be undone, by the next undo.
+    let next = call("undo", vec![]).expect("second undo");
+    assert_eq!(field(&next, "restored"), Value::Int(1), "{next:?}");
+    assert_eq!(std::fs::read_to_string(&older).unwrap(), "v0");
+}
+
+#[test]
+fn other_creating_writers_are_removed_by_undo() {
+    // file_append, save_json and the destination of file_copy create a new file
+    // through the same path as file_write, so each must leave a removable step.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("creators");
+
+    let appended = s.path("appended.txt");
+    call(
+        "file_append",
+        vec![Value::Str(appended.clone()), Value::Str("line\n".into())],
+    )
+    .expect("append to a new file");
+    let undone = call("undo", vec![]).expect("undo append");
+    assert_eq!(
+        field(&undone, "removed"),
+        Value::Int(1),
+        "file_append: {undone:?}"
+    );
+    assert!(!PathBuf::from(&appended).exists(), "file_append");
+
+    let saved = s.path("saved.json");
+    call(
+        "save_json",
+        vec![Value::Str(saved.clone()), Value::Str("{}".into())],
+    )
+    .expect("save_json a new file");
+    let undone = call("undo", vec![]).expect("undo save_json");
+    assert_eq!(
+        field(&undone, "removed"),
+        Value::Int(1),
+        "save_json: {undone:?}"
+    );
+    assert!(!PathBuf::from(&saved).exists(), "save_json");
+
+    let source = s.path("source.txt");
+    let copy = s.path("copy.txt");
+    std::fs::write(&source, "payload").expect("seed source");
+    call(
+        "file_copy",
+        vec![Value::Str(source.clone()), Value::Str(copy.clone())],
+    )
+    .expect("copy to a new destination");
+    let undone = call("undo", vec![]).expect("undo copy");
+    assert_eq!(
+        field(&undone, "removed"),
+        Value::Int(1),
+        "file_copy: {undone:?}"
+    );
+    assert!(!PathBuf::from(&copy).exists(), "file_copy destination");
+    assert_eq!(
+        std::fs::read_to_string(&source).unwrap(),
+        "payload",
+        "the copy's source is not part of the step"
+    );
+}
+
+#[test]
+fn a_failed_edit_leaves_no_journal_step() {
+    // `file_replace` with a pattern that is not present returns success=false
+    // rather than an error, and used to leave a journal step anyway. The later
+    // undo then reported `restored=1` for a file that had not changed.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("failed_edit");
+    let p = s.path("u2.txt");
+    std::fs::write(&p, "alpha").expect("seed");
+
+    let edit = call(
+        "file_replace",
+        vec![
+            Value::Str(p.clone()),
+            Value::Str("not-present".into()),
+            Value::Str("x".into()),
+        ],
+    )
+    .expect("a non-matching edit is a result, not an error");
+    assert_eq!(field(&edit, "success"), Value::Bool(false), "{edit:?}");
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "alpha");
+    assert!(
+        journal::entries().is_empty(),
+        "a failed edit must not leave a journal step: {:?}",
+        journal::entries()
+    );
+
+    let result = call("undo", vec![]).expect("undo");
+    assert_eq!(field(&result, "restored"), Value::Int(0), "{result:?}");
+    assert_eq!(field(&result, "removed"), Value::Int(0), "{result:?}");
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "alpha");
+}
+
+#[test]
+fn a_failed_edit_after_a_real_one_does_not_hide_the_real_one() {
+    // The real edit must stay undoable; the failed one must not sit on top of it.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("failed_after_real");
+    let p = s.path("u3.txt");
+    std::fs::write(&p, "alpha").expect("seed");
+
+    call(
+        "file_replace",
+        vec![
+            Value::Str(p.clone()),
+            Value::Str("alpha".into()),
+            Value::Str("beta".into()),
+        ],
+    )
+    .expect("real edit");
+    let miss = call(
+        "file_replace",
+        vec![
+            Value::Str(p.clone()),
+            Value::Str("not-present".into()),
+            Value::Str("x".into()),
+        ],
+    )
+    .expect("miss");
+    assert_eq!(field(&miss, "success"), Value::Bool(false));
+    assert_eq!(
+        journal::entries().len(),
+        1,
+        "only the real edit is recorded"
+    );
+
+    let result = call("undo", vec![]).expect("undo");
+    assert_eq!(field(&result, "restored"), Value::Int(1), "{result:?}");
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "alpha");
+}
