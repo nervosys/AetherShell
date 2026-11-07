@@ -4,7 +4,8 @@
 //! `1` with exit 0, `print(1.5e3)` was E_PARSE "expected ')'", and
 //! `y = 2.5E-3` was E_UNKNOWN_BUILTIN "unknown builtin: E". The lexer read the
 //! `e` as the start of an identifier. The unit tests in src/parser.rs pin the
-//! tokens; these tests pin what a script prints.
+//! tokens; these tests pin what a script prints. A script echoes its last
+//! value, so each one ends in a bare expression rather than `print(...)`.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -37,28 +38,28 @@ fn run_script(tag: &str, source: &str) -> (String, String, i32) {
 
 #[test]
 fn a_bare_exponent_literal_prints_its_value() {
-    let (out, err, code) = run_script("bare", "x = 1e10\nprint(x)\n");
+    let (out, err, code) = run_script("bare", "x = 1e10\nx\n");
     assert_eq!(code, 0, "stderr: {err}");
     assert_eq!(out, "10000000000", "1e10 must be the float 1e10, not 1");
 }
 
 #[test]
 fn an_exponent_literal_inside_a_call_prints_its_value() {
-    let (out, err, code) = run_script("call", "print(1.5e3)\n");
+    let (out, err, code) = run_script("call", "abs(1.5e3)\n");
     assert_eq!(code, 0, "stderr: {err}");
     assert_eq!(out, "1500");
 }
 
 #[test]
 fn a_negative_exponent_and_uppercase_e_are_floats() {
-    let (out, err, code) = run_script("negexp", "y = 2.5E-3\nprint(y)\n");
+    let (out, err, code) = run_script("negexp", "y = 2.5E-3\ny\n");
     assert_eq!(code, 0, "stderr: {err}");
     assert_eq!(out, (2.5e-3_f64).to_string());
 }
 
 #[test]
 fn an_explicit_plus_exponent_and_a_large_exponent() {
-    let (out, err, code) = run_script("plus", "print(1e+3)\nprint(6.02e23)\n");
+    let (out, err, code) = run_script("plus", "print(1e+3)\n6.02e23\n");
     assert_eq!(code, 0, "stderr: {err}");
     assert_eq!(out, format!("1000\n{}", 6.02e23_f64));
 }
