@@ -77,3 +77,41 @@ fn outside_workspace_hint_names_the_root_and_never_tells_the_agent_to_widen() {
     );
     assert_eq!(safety::outside_workspace_hint(), hint);
 }
+
+/// Run `ish --agent -c <src>` in a scratch directory and return (exit, stdout+stderr).
+fn agent_run(src: &str) -> (i32, String) {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("agent_error_semantics");
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_ish"))
+        .args(["--agent", "-c", src])
+        .current_dir(&dir)
+        .env("IRONSHELL_SESSION_DIR", dir.join("session"))
+        .env("NO_COLOR", "1")
+        .env("IRONSHELL_ALLOW_SH", "")
+        .output()
+        .expect("run ish");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    (out.status.code().unwrap_or(-1), text)
+}
+
+#[test]
+fn an_unknown_name_is_reported_unknown_before_the_approval_gate() {
+    // `exec` is classified Exec by name, but no implementation serves it.
+    let (code, text) = agent_run(r#"exec("x")"#);
+    assert!(text.contains("E_UNKNOWN_BUILTIN"), "{text}");
+    assert!(!text.contains("E_NEEDS_APPROVAL"), "{text}");
+    assert_eq!(code, 127, "{text}");
+}
+
+#[test]
+fn a_served_gated_builtin_still_needs_approval() {
+    // The gate must still stop a real destructive builtin. The target does not
+    // exist, and the refusal comes before any action is taken.
+    let (code, text) = agent_run(r#"rm("no-such-file-d3.txt")"#);
+    assert!(text.contains("E_NEEDS_APPROVAL"), "{text}");
+    assert_eq!(code, 75, "{text}");
+}

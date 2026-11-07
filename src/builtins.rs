@@ -4094,6 +4094,15 @@ pub fn is_dispatched(name: &str) -> bool {
             .is_ok()
 }
 
+/// Whether some implementation answers a call to `name`: the dispatcher's own
+/// tables, the workflow engine, or a plugin's manifest builtin. Asked before a
+/// call is classified, so a name nothing serves is unknown rather than gated.
+fn is_served(name: &str) -> bool {
+    is_dispatched(name)
+        || crate::workflow_builtins::serves(name)
+        || crate::plugins::is_manifest_builtin(name)
+}
+
 /// Names that reach the same implementation, grouped — across both halves of
 /// the dispatcher.
 ///
@@ -4137,6 +4146,14 @@ fn call_with_input_inner(
     input: Option<Value>,
     env: &mut Env,
 ) -> Result<Value> {
+    // A name nothing serves is unknown, and it is reported as unknown before any
+    // gate. `exec` is classified `Exec` by name, so without this `exec("x")` was
+    // refused for approval, for a builtin that does not exist. Only a name no
+    // implementation serves is answered here; a served name is gated as before.
+    if !is_served(name) {
+        return Err(crate::safety::unknown_builtin(name, did_you_mean(name)));
+    }
+
     // Enforce policy before the builtin runs. `effect_of` only ever *described*
     // an operation's danger; this is where the description starts to constrain.
     // Builtins that guard themselves are skipped so one action is not admitted
